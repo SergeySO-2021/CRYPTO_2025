@@ -1,0 +1,83 @@
+//@version=5
+indicator("Trend Classifier - Market Zone Analyzer", shorttitle="TCA", overlay=true)
+
+// Параметры
+N = input.int(24, "Window Size", minval=5, maxval=100)
+alpha = input.float(2.0, "Slope Threshold", minval=0.1, maxval=10.0)
+beta = input.float(2.0, "Offset Threshold", minval=0.1, maxval=10.0)
+overlap_ratio = input.float(0.33, "Overlap Ratio", minval=0.1, maxval=0.9)
+
+// Функция для вычисления линейной регрессии
+get_linear_regression(x, y, length) =>
+    sum_x = 0.0
+    sum_y = 0.0
+    sum_xy = 0.0
+    sum_x2 = 0.0
+    
+    for i = 0 to length - 1
+        sum_x += i
+        sum_y += y[i]
+        sum_xy += i * y[i]
+        sum_x2 += i * i
+    
+    n = length
+    slope = (n * sum_xy - sum_x * sum_y) / (n * sum_x2 - sum_x * sum_x)
+    offset = (sum_y - slope * sum_x) / n
+    
+    [slope, offset]
+
+// Функция для классификации сегмента
+classify_segment(slope, alpha) =>
+    if slope > alpha
+        1  // Bullish
+    else if slope < -alpha
+        -1  // Bearish
+    else
+        0   // Sideways
+
+// Основная логика
+var float current_slope = na
+var float current_offset = na
+var int current_classification = 0
+var int segment_start = 0
+
+// Вычисляем регрессию для текущего окна
+if bar_index >= N - 1
+    [slope, offset] = get_linear_regression(bar_index - N + 1, close, N)
+    
+    // Проверяем на изменение сегмента
+    if na(current_slope) or math.abs(slope - current_slope) > alpha or math.abs(offset - current_offset) > beta
+        current_slope := slope
+        current_offset := offset
+        current_classification := classify_segment(slope, alpha)
+        segment_start := bar_index
+
+// Визуализация
+plotshape(current_classification == 1, "Bullish", shape.triangleup, location.belowbar, color.green, size=size.small)
+plotshape(current_classification == -1, "Bearish", shape.triangledown, location.abovebar, color.red, size=size.small)
+plotshape(current_classification == 0, "Sideways", shape.diamond, location.absolute, color.yellow, size=size.tiny)
+
+// Линия тренда
+trend_line = current_offset + current_slope * (bar_index - segment_start)
+plot(trend_line, "Trend Line", color=current_classification == 1 ? color.green : current_classification == -1 ? color.red : color.yellow, linewidth=2)
+
+// Таблица с информацией
+var table info_table = table.new(position.top_right, 2, 4, bgcolor=color.white, border_width=1)
+if barstate.islast
+    table.cell(info_table, 0, 0, "Classification", text_color=color.black, text_size=size.small)
+    table.cell(info_table, 1, 0, current_classification == 1 ? "Bullish" : current_classification == -1 ? "Bearish" : "Sideways", 
+               text_color=current_classification == 1 ? color.green : current_classification == -1 ? color.red : color.yellow, text_size=size.small)
+    
+    table.cell(info_table, 0, 1, "Slope", text_color=color.black, text_size=size.small)
+    table.cell(info_table, 1, 1, str.tostring(current_slope, "#.####"), text_color=color.black, text_size=size.small)
+    
+    table.cell(info_table, 0, 2, "Offset", text_color=color.black, text_size=size.small)
+    table.cell(info_table, 1, 2, str.tostring(current_offset, "#.##"), text_color=color.black, text_size=size.small)
+    
+    table.cell(info_table, 0, 3, "Segment Start", text_color=color.black, text_size=size.small)
+    table.cell(info_table, 1, 3, str.tostring(segment_start), text_color=color.black, text_size=size.small)
+
+// Алерты
+alertcondition(current_classification == 1, "Bullish Trend", "Trend changed to Bullish")
+alertcondition(current_classification == -1, "Bearish Trend", "Trend changed to Bearish")
+alertcondition(current_classification == 0, "Sideways Trend", "Trend changed to Sideways")
