@@ -15,17 +15,74 @@ import os
 from pathlib import Path
 
 # Добавляем пути к существующим компонентам
-sys.path.append(str(Path(__file__).parent.parent))
-sys.path.append(str(Path(__file__).parent.parent / 'compare_analyze_indicators' / 'classifiers'))
-sys.path.append(str(Path(__file__).parent.parent / 'indicators' / 'trading_classifier_iziceros' / 'src'))
+# project_root - это корневой каталог проекта (где находятся CSV файлы)
+project_root = Path(__file__).parent.parent.parent  # Поднимаемся на уровень выше
+sys.path.insert(0, str(project_root))
+sys.path.insert(0, str(project_root / 'compare_analyze_indicators' / 'classifiers'))
+sys.path.insert(0, str(project_root / 'indicators' / 'trading_classifier_iziceros' / 'src'))
+
+print(f"🔍 Пути для импорта:")
+print(f"   Project root: {project_root}")
+print(f"   Classifiers path: {project_root / 'compare_analyze_indicators' / 'classifiers'}")
+print(f"   Trend classifier path: {project_root / 'indicators' / 'trading_classifier_iziceros' / 'src'}")
+
+# Проверяем существование файлов
+classifiers_path = project_root / 'compare_analyze_indicators' / 'classifiers'
+mza_file = classifiers_path / 'mza_classifier_vectorized.py'
+ml_file = classifiers_path / 'ml_classifier_optimized.py'
+
+print(f"🔍 Проверка файлов:")
+print(f"   MZA файл существует: {mza_file.exists()} - {mza_file}")
+print(f"   ML файл существует: {ml_file.exists()} - {ml_file}")
 
 try:
-    from compare_analyze_indicators.classifiers.mza_classifier_vectorized import VectorizedMZAClassifier
-    from compare_analyze_indicators.classifiers.ml_classifier_optimized import OptimizedMarketRegimeMLClassifier
-    from indicators.trading_classifier_iziceros.src.trend_classifier import Segmenter, Config, CONFIG_REL, CONFIG_ABS, CONFIG_REL_SLOPE_ONLY
+    from mza_classifier_vectorized import VectorizedMZAClassifier
+    from ml_classifier_optimized import OptimizedMarketRegimeMLClassifier
+    from trend_classifier import Segmenter, Config, CONFIG_REL, CONFIG_ABS, CONFIG_REL_SLOPE_ONLY
+    print("✅ Все классификаторы загружены успешно")
 except ImportError as e:
-    print(f"Предупреждение: Не удалось импортировать некоторые компоненты: {e}")
-    print("Будут использованы упрощенные версии")
+    print(f"❌ Не удалось импортировать классификаторы: {e}")
+    print("🔄 Пробуем альтернативные способы импорта...")
+    
+    # Пробуем импортировать по одному
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("mza_classifier_vectorized", mza_file)
+        mza_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mza_module)
+        VectorizedMZAClassifier = mza_module.VectorizedMZAClassifier
+        print("✅ VectorizedMZAClassifier загружен через importlib")
+    except Exception as e2:
+        print(f"❌ Не удалось загрузить VectorizedMZAClassifier: {e2}")
+        # Создаем заглушку
+        class VectorizedMZAClassifier:
+            def __init__(self, parameters=None):
+                self.parameters = parameters or {}
+            def fit_predict(self, data):
+                return np.zeros(len(data))
+    
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("ml_classifier_optimized", ml_file)
+        ml_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ml_module)
+        OptimizedMarketRegimeMLClassifier = ml_module.OptimizedMarketRegimeMLClassifier
+        print("✅ OptimizedMarketRegimeMLClassifier загружен через importlib")
+    except Exception as e2:
+        print(f"❌ Не удалось загрузить OptimizedMarketRegimeMLClassifier: {e2}")
+        # Создаем заглушку
+        class OptimizedMarketRegimeMLClassifier:
+            def __init__(self):
+                pass
+            def fit_predict(self, data):
+                return np.zeros(len(data))
+    
+    # Заглушка для Segmenter
+    class Segmenter:
+        def __init__(self, config=None):
+            self.config = config
+        def segment(self, data):
+            return []
 
 
 class IndicatorOptimizationSystem:
@@ -38,20 +95,25 @@ class IndicatorOptimizationSystem:
     - Интеграцию с существующими компонентами проекта
     """
     
-    def __init__(self, classifier_type: str = 'mza', data_path: str = '../'):
+    def __init__(self, classifier_type: str = 'mza', data_path: str = None):
         """
         Инициализация системы оптимизации.
         
         Args:
             classifier_type: Тип классификатора ('mza', 'trend_classifier', 'ml')
-            data_path: Путь к данным проекта
+            data_path: Путь к данным проекта (по умолчанию - корневой каталог проекта)
         """
         self.classifier_type = classifier_type
-        self.data_path = data_path
+        # Путь к данным - корневой каталог проекта (где находятся CSV файлы)
+        self.data_path = data_path or str(Path(__file__).parent.parent.parent)
         self.classifier = None
         self.indicator_engine = None
         self.optimizer = None
         self.data = {}
+        
+        print(f"🔧 Инициализация системы оптимизации:")
+        print(f"   Тип классификатора: {self.classifier_type}")
+        print(f"   Путь к данным: {self.data_path}")
         
         # Инициализация компонентов
         self._load_classifier()
@@ -100,20 +162,56 @@ class IndicatorOptimizationSystem:
     def _load_data(self):
         """Загрузка данных BTC."""
         timeframes = ['15m', '30m', '1h', '4h', '1d']
+        # Используем self.data_path (корневой каталог проекта)
+        base_path = Path(self.data_path)
+        
+        print(f"🔍 Ищем файлы данных в: {base_path}")
+        print(f"📁 Доступные CSV файлы:")
+        csv_files = list(base_path.glob('*.csv'))
+        for file in csv_files:
+            print(f"   ✅ {file.name}")
         
         for tf in timeframes:
             try:
-                file_path = f"{self.data_path}df_btc_{tf}.csv"
-                if os.path.exists(file_path):
+                file_path = base_path / f"df_btc_{tf}.csv"
+                print(f"🔍 Проверяем файл: {file_path}")
+                
+                if file_path.exists():
+                    print(f"✅ Файл найден: {file_path}")
                     df = pd.read_csv(file_path)
-                    df['timestamps'] = pd.to_datetime(df['timestamps'])
-                    df.set_index('timestamps', inplace=True)
+                    
+                    # Проверяем колонки
+                    print(f"📊 Колонки в файле {tf}: {list(df.columns)}")
+                    
+                    if 'timestamps' in df.columns:
+                        df['timestamps'] = pd.to_datetime(df['timestamps'])
+                        df.set_index('timestamps', inplace=True)
+                        print(f"✅ Использована колонка 'timestamps' для индекса")
+                    elif 'timestamp' in df.columns:
+                        df['timestamp'] = pd.to_datetime(df['timestamp'])
+                        df.set_index('timestamp', inplace=True)
+                        print(f"✅ Использована колонка 'timestamp' для индекса")
+                    else:
+                        # Если нет колонки времени, создаем индекс
+                        df.index = pd.date_range(start='2020-01-01', periods=len(df), freq='1H')
+                        print(f"⚠️ Создан автоматический индекс времени")
+                    
+                    # Проверяем наличие необходимых колонок
+                    required_columns = ['open', 'high', 'low', 'close']
+                    missing_columns = [col for col in required_columns if col not in df.columns]
+                    if missing_columns:
+                        print(f"⚠️ Отсутствуют колонки {missing_columns} в {tf}")
+                    else:
+                        print(f"✅ Все необходимые колонки присутствуют в {tf}")
+                    
                     self.data[tf] = df
                     print(f"✅ Данные {tf} загружены: {len(df)} записей")
                 else:
-                    print(f"⚠️ Файл {file_path} не найден")
+                    print(f"❌ Файл {file_path} не найден")
             except Exception as e:
                 print(f"❌ Ошибка загрузки данных {tf}: {e}")
+                import traceback
+                traceback.print_exc()
                 
     def identify_zones(self, data: pd.DataFrame, timeframe: str = '1h') -> List[Dict]:
         """
