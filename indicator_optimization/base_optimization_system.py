@@ -16,7 +16,7 @@ from pathlib import Path
 
 # Добавляем пути к существующим компонентам
 # project_root - это корневой каталог проекта (где находятся CSV файлы)
-project_root = Path(__file__).parent.parent.parent  # Поднимаемся на уровень выше
+project_root = Path(__file__).parent.parent  # Поднимаемся на 2 уровня выше: из indicator_optimization/ в корень проекта
 sys.path.insert(0, str(project_root))
 sys.path.insert(0, str(project_root / 'compare_analyze_indicators' / 'classifiers'))
 sys.path.insert(0, str(project_root / 'indicators' / 'trading_classifier_iziceros' / 'src'))
@@ -105,7 +105,7 @@ class IndicatorOptimizationSystem:
         """
         self.classifier_type = classifier_type
         # Путь к данным - корневой каталог проекта (где находятся CSV файлы)
-        self.data_path = data_path or str(Path(__file__).parent.parent.parent)
+        self.data_path = data_path or str(Path(__file__).parent.parent)
         self.classifier = None
         self.indicator_engine = None
         self.optimizer = None
