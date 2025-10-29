@@ -1,0 +1,225 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Market Zone Classifier
+
+//@version=6
+indicator("Market Zone Classifier", shorttitle = "MZC", overlay=true)
+
+// ============================================================================
+// SIMPLE AND RELIABLE MARKET ZONE CLASSIFIER
+// Based on Price Action Analysis
+// ============================================================================
+
+// —————————————————————————————
+// INPUT PARAMETERS
+// —————————————————————————————
+timeframeMode = input.string("Auto", "Timeframe Mode", options=["Auto", "Manual"], group="Settings", tooltip="Auto-adjust parameters based on timeframe or use manual settings")
+
+// Auto-adjusted parameters based on timeframe
+timeframeMinutes = timeframe.in_seconds() / 60
+autoLookbackPeriod = timeframeMinutes <= 15 ? 15 : timeframeMinutes <= 60 ? 20 : timeframeMinutes <= 240 ? 25 : timeframeMinutes <= 1440 ? 30 : 40
+autoTrendThreshold = timeframeMinutes <= 15 ? 0.3 : timeframeMinutes <= 60 ? 0.5 : timeframeMinutes <= 240 ? 0.7 : timeframeMinutes <= 1440 ? 1.0 : 1.5
+autoVolatilityPeriod = timeframeMinutes <= 15 ? 10 : timeframeMinutes <= 60 ? 14 : timeframeMinutes <= 240 ? 18 : timeframeMinutes <= 1440 ? 22 : 26
+autoVolatilityThreshold = timeframeMinutes <= 15 ? 1.2 : timeframeMinutes <= 60 ? 1.5 : timeframeMinutes <= 240 ? 1.8 : timeframeMinutes <= 1440 ? 2.0 : 2.5
+
+// Manual parameters (used when timeframeMode = "Manual")
+lookbackPeriod = input.int(20, "Lookback Period", minval=5, maxval=100, group="Manual Settings", tooltip="Period for analyzing price extremes")
+trendThreshold = input.float(0.5, "Trend Threshold", minval=0.1, maxval=2.0, step=0.1, group="Manual Settings", tooltip="Minimum price change to consider as trend")
+volatilityPeriod = input.int(14, "Volatility Period", minval=5, maxval=50, group="Manual Settings", tooltip="Period for volatility calculation")
+volatilityThreshold = input.float(1.5, "Volatility Threshold", minval=0.5, maxval=3.0, step=0.1, group="Manual Settings", tooltip="Multiplier for volatility classification")
+
+// Final parameters (auto or manual)
+finalLookbackPeriod = timeframeMode == "Auto" ? autoLookbackPeriod : lookbackPeriod
+finalTrendThreshold = timeframeMode == "Auto" ? autoTrendThreshold : trendThreshold
+finalVolatilityPeriod = timeframeMode == "Auto" ? autoVolatilityPeriod : volatilityPeriod
+finalVolatilityThreshold = timeframeMode == "Auto" ? autoVolatilityThreshold : volatilityThreshold
+
+// Display Options
+showZones = input.bool(true, "Show Zone Background", group="Display")
+showLabels = input.bool(true, "Show Zone Labels", group="Display")
+showDashboard = input.bool(true, "Show Dashboard", group="Display")
+
+// —————————————————————————————
+// PRICE ACTION CALCULATIONS
+// —————————————————————————————
+
+// Price extremes
+highestHigh = ta.highest(high, finalLookbackPeriod)
+lowestLow = ta.lowest(low, finalLookbackPeriod)
+priceRange = highestHigh - lowestLow
+
+// Moving averages for trend direction
+fastMA = ta.sma(close, 10)
+slowMA = ta.sma(close, 20)
+maSlope = fastMA - slowMA
+
+// Price position relative to range
+pricePosition = (close - lowestLow) / priceRange
+
+// —————————————————————————————
+// VOLATILITY CALCULATIONS
+// —————————————————————————————
+
+// ATR for volatility
+atr = ta.atr(finalVolatilityPeriod)
+atrMA = ta.sma(atr, finalVolatilityPeriod)
+volatilityRatio = atr / atrMA
+
+// Bollinger Bands for volatility
+bbLength = finalVolatilityPeriod
+bbMult = 2.0
+bbBasis = ta.sma(close, bbLength)
+bbDev = ta.stdev(close, bbLength)
+bbUpper = bbBasis + bbMult * bbDev
+bbLower = bbBasis - bbMult * bbDev
+bbWidth = (bbUpper - bbLower) / bbBasis
+
+// —————————————————————————————
+// ZONE CLASSIFICATION LOGIC
+// —————————————————————————————
+
+// Trend Classification
+trendUp = maSlope > finalTrendThreshold and close > fastMA
+trendDown = maSlope < -finalTrendThreshold and close < fastMA
+sideways = not trendUp and not trendDown
+
+// Volatility Classification
+highVolatility = volatilityRatio > finalVolatilityThreshold or bbWidth > 0.1
+lowVolatility = volatilityRatio < (1 / finalVolatilityThreshold) and bbWidth < 0.05
+normalVolatility = not highVolatility and not lowVolatility
+
+// Price Action Classification
+priceNearHigh = pricePosition > 0.8
+priceNearLow = pricePosition < 0.2
+priceInMiddle = not priceNearHigh and not priceNearLow
+
+// —————————————————————————————
+// FINAL ZONE DETERMINATION
+// —————————————————————————————
+
+// Primary Zone (Trend)
+primaryZone = trendUp ? 1 : trendDown ? -1 : 0
+
+// Secondary Zone (Volatility)
+secondaryZone = highVolatility ? 2 : lowVolatility ? -2 : 0
+
+// Combined Zone
+zone = primaryZone + secondaryZone
+
+// Zone Names
+zoneName = zone == 3 ? "Strong Bull + High Vol" : zone == 2 ? "Bull + High Vol" : zone == 1 ? "Bull + Normal Vol" : zone == 0 ? "Sideways" : zone == -1 ? "Bear + Normal Vol" : zone == -2 ? "Bear + High Vol" : zone == -3 ? "Strong Bear + High Vol" : "Unknown"
+
+// —————————————————————————————
+// VISUALIZATION
+// —————————————————————————————
+
+// Zone Colors
+zoneColor = zone == 3 ? color.new(color.green, 80) : zone == 2 ? color.new(color.lime, 80) : zone == 1 ? color.new(color.aqua, 80) : zone == 0 ? color.new(color.gray, 80) : zone == -1 ? color.new(color.orange, 80) : zone == -2 ? color.new(color.red, 80) : zone == -3 ? color.new(color.maroon, 80) : color.new(color.white, 80)
+
+// Background
+bgcolor(showZones ? zoneColor : na, title="Zone Background")
+
+// Zone Labels
+if showLabels and barstate.islast
+    label.new(bar_index, high, zoneName, 
+              color=zoneColor, 
+              textcolor=color.white, 
+              style=label.style_label_down,
+              size=size.small)
+
+// —————————————————————————————
+// DASHBOARD
+// —————————————————————————————
+
+if showDashboard and barstate.islast
+    var table dashboard = table.new(position.top_right, 2, 10, 
+                                   bgcolor=color.new(color.white, 90), 
+                                   border_width=1)
+    
+    // Headers
+    table.cell(dashboard, 0, 0, "Market Zone Classifier", 
+               text_color=color.black, text_size=size.normal, 
+               bgcolor=color.new(color.blue, 80))
+    table.cell(dashboard, 1, 0, "Value", 
+               text_color=color.black, text_size=size.small, 
+               bgcolor=color.new(color.blue, 80))
+    
+    // Timeframe Info
+    table.cell(dashboard, 0, 1, "TIMEFRAME", 
+               text_color=color.black, text_size=size.small, 
+               bgcolor=color.new(color.navy, 90))
+    table.cell(dashboard, 1, 1, timeframeMode == "Auto" ? str.tostring(timeframeMinutes) + "m" : "Manual", 
+               text_color=color.black, text_size=size.small)
+    
+    // Parameters Info
+    table.cell(dashboard, 0, 2, "PARAMETERS", 
+               text_color=color.black, text_size=size.small, 
+               bgcolor=color.new(color.purple, 90))
+    table.cell(dashboard, 1, 2, "Lookback: " + str.tostring(finalLookbackPeriod), 
+               text_color=color.black, text_size=size.small)
+    
+    // Trend Analysis
+    table.cell(dashboard, 0, 3, "TREND", 
+               text_color=color.black, text_size=size.small, 
+               bgcolor=color.new(color.orange, 90))
+    table.cell(dashboard, 1, 3, trendUp ? "UP" : trendDown ? "DOWN" : "SIDEWAYS", 
+               text_color=color.black, text_size=size.small)
+    
+    // Volatility Analysis
+    table.cell(dashboard, 0, 4, "VOLATILITY", 
+               text_color=color.black, text_size=size.small, 
+               bgcolor=color.new(color.purple, 90))
+    table.cell(dashboard, 1, 4, highVolatility ? "HIGH" : lowVolatility ? "LOW" : "NORMAL", 
+               text_color=color.black, text_size=size.small)
+    
+    // Price Position
+    table.cell(dashboard, 0, 5, "PRICE POSITION", 
+               text_color=color.black, text_size=size.small, 
+               bgcolor=color.new(color.yellow, 90))
+    table.cell(dashboard, 1, 5, priceNearHigh ? "HIGH" : priceNearLow ? "LOW" : "MIDDLE", 
+               text_color=color.black, text_size=size.small)
+    
+    // MA Slope
+    table.cell(dashboard, 0, 6, "MA SLOPE", 
+               text_color=color.black, text_size=size.small, 
+               bgcolor=color.new(color.teal, 90))
+    table.cell(dashboard, 1, 6, str.tostring(maSlope, "#.##"), 
+               text_color=color.black, text_size=size.small)
+    
+    // Volatility Ratio
+    table.cell(dashboard, 0, 7, "VOL RATIO", 
+               text_color=color.black, text_size=size.small, 
+               bgcolor=color.new(color.lime, 90))
+    table.cell(dashboard, 1, 7, str.tostring(volatilityRatio, "#.##"), 
+               text_color=color.black, text_size=size.small)
+    
+    // BB Width
+    table.cell(dashboard, 0, 8, "BB WIDTH", 
+               text_color=color.black, text_size=size.small, 
+               bgcolor=color.new(color.navy, 90))
+    table.cell(dashboard, 1, 8, str.tostring(bbWidth, "#.##"), 
+               text_color=color.black, text_size=size.small)
+    
+    // Final Zone
+    table.cell(dashboard, 0, 9, "ZONE", 
+               text_color=color.black, text_size=size.small, 
+               bgcolor=color.new(color.maroon, 90))
+    table.cell(dashboard, 1, 9, zoneName, 
+               text_color=color.black, text_size=size.small)
+
+// —————————————————————————————
+// ALERTS
+// —————————————————————————————
+
+// Zone change alerts
+alertcondition(zone != zone[1], title="Zone Change", message="Market zone changed to {{ticker}} {{interval}}")
+
+// Strong trend alerts
+alertcondition(trendUp and not trendUp[1], title="Trend Up Start", message="Uptrend started on {{ticker}} {{interval}}")
+alertcondition(trendDown and not trendDown[1], title="Trend Down Start", message="Downtrend started on {{ticker}} {{interval}}")
+
+// High volatility alerts
+alertcondition(highVolatility and not highVolatility[1], title="High Volatility", message="High volatility detected on {{ticker}} {{interval}}")
+
+// —————————————————————————————
+// END OF SCRIPT
+// —————————————————————————————

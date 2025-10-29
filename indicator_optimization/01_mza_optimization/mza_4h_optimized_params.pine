@@ -1,0 +1,39 @@
+
+// Оптимизированные параметры MZA для 4h таймфрейма
+// Economic Value: 0.519489
+// Дата оптимизации: 2025-10-28 22:41:22
+
+// Trend Indicators
+adxLength = input.int(19, "ADX Length", minval=10, maxval=20)
+adxThreshold = input.int(26, "ADX Threshold", minval=15, maxval=30)
+fastMALength = input.int(15, "Fast MA Length", minval=15, maxval=25)
+slowMALength = input.int(42, "Slow MA Length", minval=40, maxval=60)
+
+// Momentum Indicators
+rsiLength = input.int(20, "RSI Length", minval=10, maxval=20)
+stochKLength = input.int(15, "Stochastic %K Length", minval=10, maxval=20)
+macdFast = input.int(15, "MACD Fast", minval=8, maxval=16)
+macdSlow = input.int(22, "MACD Slow", minval=20, maxval=30)
+macdSignal = input.int(11, "MACD Signal", minval=7, maxval=12)
+
+// Price Action Indicators
+hhllRange = input.int(21, "HH/LL Range", minval=15, maxval=30)
+haDojiRange = input.int(7, "HA Doji Range", minval=3, maxval=10)
+candleRangeLength = input.int(12, "Candle Range Length", minval=5, maxval=15)
+
+// Market Activity Indicators
+bbLength = input.int(24, "Bollinger Bands Length", minval=15, maxval=25)
+bbMultiplier = input.float(1.8, "BB Multiplier", minval=1.5, maxval=3.0)
+atrLength = input.int(13, "ATR Length", minval=10, maxval=20)
+kcLength = input.int(16, "Keltner Channels Length", minval=15, maxval=25)
+kcMultiplier = input.float(1.5, "KC Multiplier", minval=1.0, maxval=2.5)
+volumeMALength = input.int(15, "Volume MA Length", minval=15, maxval=25)
+
+// Base Weights
+trendWeightBase = input.int(37, "Trend Weight Base", minval=30, maxval=50)
+momentumWeightBase = input.int(36, "Momentum Weight Base", minval=20, maxval=40)
+priceActionWeightBase = input.int(40, "Price Action Weight Base", minval=20, maxval=40)
+
+// Stability Controls
+useSmoothing = input.bool(true, "Use Smoothing")
+useHysteresis = input.bool(false, "Use Hysteresis")
