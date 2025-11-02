@@ -63,13 +63,8 @@ Thumbs.db
 data/
 data_frames/
 
-# CSV файлы с данными BTC (если создаются автоматически)
-df_btc_15m.csv
-df_btc_30m.csv
-df_btc_1h.csv
-df_btc_4h.csv
-df_btc_1d.csv
-df_btc_*.csv
+# CSV файлы с данными (все CSV файлы)
+*.csv
 
 # Временные файлы
 *.tmp

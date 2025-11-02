@@ -1,0 +1,21 @@
+# Основные библиотеки для работы с Binance
+python-binance>=1.0.19
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Для экспорта данных
+openpyxl>=3.1.0  # для Excel
+pyarrow>=14.0.0  # для Parquet
+
+# Для работы с WebSocket (опционально, если используете websocket-client)
+websocket-client>=1.6.0
+
+# Утилиты
+python-dotenv>=1.0.0  # для загрузки .env файлов
+requests>=2.28.0  # для HTTP запросов к API
+tqdm>=4.65.0  # для отображения прогресс-бара
+psutil>=5.9.0  # для мониторинга использования памяти
+
+# Grafana / InfluxDB интеграция
+influxdb-client>=1.38.0  # для записи данных в InfluxDB
+
