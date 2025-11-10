@@ -65,6 +65,13 @@ class ZoneClassifierOptimizer:
         if optimization_method == 'bayesian' and not BAYESIAN_AVAILABLE:
             print("⚠️ Bayesian Optimization недоступен, используем Genetic Algorithm")
             self.method = 'genetic'
+        # Поддержка мульти-объективного режима NSGA-II
+        if optimization_method and optimization_method.lower() in ['nsga2', 'genetic_multi']:
+            if not GA_AVAILABLE:
+                print("⚠️ DEAP недоступен, используем Random Search")
+                self.method = 'random'
+            else:
+                self.method = 'nsga2'
         
         if optimization_method == 'genetic' and not GA_AVAILABLE:
             print("⚠️ Genetic Algorithm недоступен, используем Random Search")
@@ -74,6 +81,18 @@ class ZoneClassifierOptimizer:
                       volatility_period, volatility_threshold):
         """Классификация зон с заданными параметрами"""
         df = self.data.copy()
+        # Ensure DateTimeIndex named 'timestamps'
+        if 'timestamps' in df.columns and not isinstance(df.index, pd.DatetimeIndex):
+            df['timestamps'] = pd.to_datetime(df['timestamps'])
+            df = df.set_index('timestamps')
+        if not isinstance(df.index, pd.DatetimeIndex):
+            # try to coerce existing index to datetime
+            try:
+                df.index = pd.to_datetime(df.index)
+            except Exception:
+                pass
+        df.index.name = 'timestamps'
+        df.sort_index(inplace=True)
         
         # Price extremes (без look ahead)
         df['highest_high'] = df['high'].shift(1).rolling(window=lookback_period-1).max()
@@ -85,14 +104,12 @@ class ZoneClassifierOptimizer:
         df['slow_ma'] = df['close'].shift(1).rolling(window=20).mean()
         df['ma_slope'] = df['fast_ma'] - df['slow_ma']
         
-        # Volatility
-        df['atr'] = df.apply(
-            lambda row: max(
-                row['high'] - row['low'],
-                abs(row['high'] - df.loc[row.name - 1, 'close']) if row.name > 0 else 0,
-                abs(row['low'] - df.loc[row.name - 1, 'close']) if row.name > 0 else 0
-            ), axis=1
-        ) if len(df) > 0 else pd.Series()
+        # Volatility (vectorized True Range without look-ahead)
+        prev_close = df['close'].shift(1)
+        tr1 = (df['high'] - df['low']).abs()
+        tr2 = (df['high'] - prev_close).abs()
+        tr3 = (df['low'] - prev_close).abs()
+        df['atr'] = np.maximum(tr1, np.maximum(tr2, tr3))
         df['atr'] = df['atr'].rolling(window=volatility_period).mean()
         df['atr_ma'] = df['atr'].rolling(window=volatility_period).mean()
         df['volatility_ratio'] = df['atr'] / df['atr_ma']
@@ -231,6 +248,58 @@ class ZoneClassifierOptimizer:
             
         except Exception as e:
             return -1000  # Ошибка - очень плохая оценка
+
+    def multi_objective(self, params):
+        """Мульти-объективная функция: (stability, separation, economic) с штрафами."""
+        lookback, trend_thresh, vol_period, vol_thresh = params
+        try:
+            zones = self.classify_zones(int(lookback), float(trend_thresh), int(vol_period), float(vol_thresh))
+            returns = self.data['close'].pct_change().dropna()
+            common_idx = zones.index.intersection(returns.index)
+            if len(common_idx) < 100:
+                return (0.0, 0.0, 0.0)
+            z = zones.loc[common_idx]
+            r = returns.loc[common_idx]
+
+            stability = self.calculate_zone_stability(z)
+            separation = self.calculate_zone_separation(z, r)
+            economic = self.calculate_economic_value(z, r)
+
+            # Распределение зон
+            dist = z.value_counts(normalize=True)
+            pct_high_vol = float(dist.get(2, 0) + dist.get(-2, 0) + dist.get(3, 0) + dist.get(-3, 0))
+            pct_trend = float(dist.get(1, 0) + dist.get(-1, 0) + dist.get(2, 0) + dist.get(-2, 0) + dist.get(3, 0) + dist.get(-3, 0))
+
+            # Средняя длина зон
+            durations = []
+            prev = None
+            cur_len = 0
+            for val in z:
+                if val == prev:
+                    cur_len += 1
+                else:
+                    if prev is not None:
+                        durations.append(cur_len)
+                    prev = val
+                    cur_len = 1
+            if cur_len > 0:
+                durations.append(cur_len)
+            avg_zone_len = np.mean(durations) if durations else 0.0
+
+            # Штрафы за вырожденность
+            penalty = 0.0
+            if pct_high_vol < 0.05:
+                penalty += (0.05 - pct_high_vol) * 1.0
+            if pct_trend < 0.30:
+                penalty += (0.30 - pct_trend) * 1.0
+            if avg_zone_len < 8:
+                penalty += (8 - avg_zone_len) * 0.02
+
+            return (max(0.0, stability - penalty),
+                    max(0.0, separation - penalty),
+                    max(0.0, economic - penalty))
+        except Exception:
+            return (0.0, 0.0, 0.0)
     
     def optimize_bayesian(self, n_calls=100, n_initial_points=20):
         """Bayesian Optimization"""
@@ -426,10 +495,143 @@ class ZoneClassifierOptimizer:
                 population_size=kwargs.get('population_size', 30),
                 generations=kwargs.get('generations', 50)
             )
+        elif self.method == 'nsga2':
+            return self.optimize_nsga2(
+                population_size=kwargs.get('population_size', 50),
+                generations=kwargs.get('generations', 60)
+            )
         else:  # random
             return self.optimize_random(
                 n_trials=kwargs.get('n_trials', 500)
             )
+
+    def optimize_nsga2(self, population_size=50, generations=60):
+        """NSGA-II мульти-объективная оптимизация (stability, separation, economic)."""
+        if not GA_AVAILABLE:
+            raise ImportError("DEAP не установлен для NSGA-II")
+
+        # Пространство параметров (адекватные диапазоны для 1h)
+        lookback_min, lookback_max = 15, 50
+        trend_min, trend_max = 0.3, 0.9
+        volp_min, volp_max = 10, 26
+        volt_min, volt_max = 1.2, 2.0
+
+        # Определяем типы фитнеса и индивидуумов
+        if not hasattr(creator, 'FitnessMulti'):
+            creator.create("FitnessMulti", base.Fitness, weights=(1.0, 1.0, 1.0))
+        if not hasattr(creator, 'IndividualMulti'):
+            creator.create("IndividualMulti", list, fitness=creator.FitnessMulti)
+
+        toolbox = base.Toolbox()
+        toolbox.register("attr_lookback", np.random.randint, lookback_min, lookback_max + 1)
+        toolbox.register("attr_trend", np.random.uniform, trend_min, trend_max)
+        toolbox.register("attr_volp", np.random.randint, volp_min, volp_max + 1)
+        toolbox.register("attr_volt", np.random.uniform, volt_min, volt_max)
+        toolbox.register("individual", tools.initCycle, creator.IndividualMulti,
+                         (toolbox.attr_lookback, toolbox.attr_trend, toolbox.attr_volp, toolbox.attr_volt), n=1)
+        toolbox.register("population", tools.initRepeat, list, toolbox.individual)
+
+        toolbox.register("evaluate", lambda ind: self.multi_objective(ind))
+        
+        # Кастомный кроссовер: целые и вещественные отдельно
+        def mate_custom(ind1, ind2):
+            # lookback (int) - простое среднее и округление
+            if np.random.rand() < 0.5:
+                ind1[0], ind2[0] = int((ind1[0] + ind2[0]) / 2), int((ind1[0] + ind2[0]) / 2)
+            # trend (float) - blend
+            if np.random.rand() < 0.5:
+                alpha = 0.5
+                temp = ind1[1]
+                ind1[1] = alpha * ind1[1] + (1 - alpha) * ind2[1]
+                ind2[1] = (1 - alpha) * temp + alpha * ind2[1]
+                ind1[1] = np.clip(ind1[1], trend_min, trend_max)
+                ind2[1] = np.clip(ind2[1], trend_min, trend_max)
+            # vol_period (int)
+            if np.random.rand() < 0.5:
+                ind1[2], ind2[2] = int((ind1[2] + ind2[2]) / 2), int((ind1[2] + ind2[2]) / 2)
+            # vol_threshold (float) - blend
+            if np.random.rand() < 0.5:
+                alpha = 0.5
+                temp = ind1[3]
+                ind1[3] = alpha * ind1[3] + (1 - alpha) * ind2[3]
+                ind2[3] = (1 - alpha) * temp + alpha * ind2[3]
+                ind1[3] = np.clip(ind1[3], volt_min, volt_max)
+                ind2[3] = np.clip(ind2[3], volt_min, volt_max)
+            return ind1, ind2
+        
+        toolbox.register("mate", mate_custom)
+        
+        # Кастомная мутация: целые и вещественные отдельно
+        def mutate_custom(individual):
+            # lookback (int)
+            if np.random.rand() < 0.25:
+                individual[0] = np.random.randint(lookback_min, lookback_max + 1)
+            # trend (float)
+            if np.random.rand() < 0.25:
+                individual[1] = np.clip(individual[1] + np.random.normal(0, 0.1), trend_min, trend_max)
+            # vol_period (int)
+            if np.random.rand() < 0.25:
+                individual[2] = np.random.randint(volp_min, volp_max + 1)
+            # vol_threshold (float)
+            if np.random.rand() < 0.25:
+                individual[3] = np.clip(individual[3] + np.random.normal(0, 0.1), volt_min, volt_max)
+            return individual,
+        
+        toolbox.register("mutate", mutate_custom)
+        toolbox.register("select", tools.selNSGA2)
+
+        pop = toolbox.population(n=population_size)
+        # Инициализируем фитнес и фронт
+        invalid_ind = [ind for ind in pop if not ind.fitness.valid]
+        fitnesses = list(map(toolbox.evaluate, invalid_ind))
+        for ind, fit in zip(invalid_ind, fitnesses):
+            ind.fitness.values = fit
+        pop = tools.selNSGA2(pop, k=len(pop))
+
+        for gen in range(generations):
+            offspring = tools.selTournamentDCD(pop, len(pop))
+            offspring = [toolbox.clone(ind) for ind in offspring]
+
+            for ind1, ind2 in zip(offspring[::2], offspring[1::2]):
+                if np.random.rand() < 0.9:
+                    toolbox.mate(ind1, ind2)
+                    del ind1.fitness.values
+                    del ind2.fitness.values
+            for ind in offspring:
+                if np.random.rand() < 0.3:
+                    toolbox.mutate(ind)
+                    del ind.fitness.values
+
+            invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
+            fitnesses = list(map(toolbox.evaluate, invalid_ind))
+            for ind, fit in zip(invalid_ind, fitnesses):
+                ind.fitness.values = fit
+
+            pop = tools.selNSGA2(pop + offspring, k=population_size)
+
+        # Pareto-фронт
+        pareto = tools.sortNondominated(pop, k=len(pop), first_front_only=True)[0]
+        results = []
+        for ind in pareto:
+            lookback, trend, volp, volt = ind
+            results.append({
+                'lookbackPeriod': int(lookback),
+                'trendThreshold': float(trend),
+                'volatilityPeriod': int(volp),
+                'volatilityThreshold': float(volt),
+                'stability': ind.fitness.values[0],
+                'separation': ind.fitness.values[1],
+                'economic': ind.fitness.values[2]
+            })
+
+        best = max(results, key=lambda x: x['stability'] + x['separation'] + x['economic']) if results else None
+        return {
+            'method': 'NSGA-II',
+            'population_size': population_size,
+            'generations': generations,
+            'pareto': results,
+            'best': best
+        }
 
 
 def load_btc_data(base_path=None):

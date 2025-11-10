@@ -1,0 +1,17 @@
+# Основные зависимости из requirements.txt
+streamlit
+pandas
+requests
+
+# Дополнительные зависимости из кода
+numpy
+scikit-learn
+tensorflow
+keras
+hmmlearn
+talib
+
+# Для визуализации
+matplotlib
+seaborn
+

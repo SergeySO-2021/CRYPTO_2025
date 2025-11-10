@@ -1,0 +1,13 @@
+# Конфигурация для тестирования на наших данных
+defaults:
+  - _self_
+  - model: random_forest
+  - dataset_loader: our_coinmarket
+  - metrics
+
+validation_method: simple
+symbol: BTCUSDT
+load_path: C:\Users\XE\Desktop\CRYPTO_2025\cryptopredictions_test\data\BTCUSDT-15m-data.csv
+save_dir: results/
+dataset_path: C:\Users\XE\Desktop\CRYPTO_2025\cryptopredictions_test\data\BTCUSDT-15m-data.csv
+

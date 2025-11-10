@@ -1,3 +1,6 @@
 [submodule "indicators/trading_classifier_iziceros"]
 	path = indicators/trading_classifier_iziceros
 	url = https://github.com/izikeros/trend_classifier.git
+[submodule "OsEngine"]
+	path = OsEngine
+	url = https://github.com/AlexWan/OsEngine.git

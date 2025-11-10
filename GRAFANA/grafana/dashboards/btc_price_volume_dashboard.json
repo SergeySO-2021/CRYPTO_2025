@@ -1,0 +1,290 @@
+{
+  "dashboard": {
+    "title": "BTC Price & Market Volume Dashboard",
+    "tags": ["crypto", "binance", "btc", "price", "volume"],
+    "timezone": "browser",
+    "refresh": "30s",
+    "time": {
+      "from": "now-7d",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "BTC Price (Close) - 15m",
+        "type": "timeseries",
+        "gridPos": {"h": 10, "w": 24, "x": 0, "y": 0},
+        "targets": [
+          {
+            "query": "from(bucket: \"binance_data\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r[\"_measurement\"] == \"btc_combined\") |> filter(fn: (r) => r[\"_field\"] == \"close\") |> aggregateWindow(every: 15m, fn: last, createEmpty: false)",
+            "refId": "A"
+          },
+          {
+            "query": "from(bucket: \"binance_data\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r[\"_measurement\"] == \"btc_combined\") |> filter(fn: (r) => r[\"_field\"] == \"high\") |> aggregateWindow(every: 15m, fn: max, createEmpty: false)",
+            "refId": "B"
+          },
+          {
+            "query": "from(bucket: \"binance_data\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r[\"_measurement\"] == \"btc_combined\") |> filter(fn: (r) => r[\"_field\"] == \"low\") |> aggregateWindow(every: 15m, fn: min, createEmpty: false)",
+            "refId": "C"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "currencyUSD",
+            "decimals": 2,
+            "custom": {
+              "tooltip": {
+                "mode": "multi"
+              }
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {"id": "byName", "options": "close"},
+              "properties": [
+                {"id": "displayName", "value": "Price (Close)"},
+                {"id": "color", "value": {"mode": "fixed", "fixedColor": "blue"}}
+              ]
+            },
+            {
+              "matcher": {"id": "byName", "options": "high"},
+              "properties": [
+                {"id": "displayName", "value": "Max"},
+                {"id": "custom.hideFrom", "value": {"tooltip": false, "graph": true, "legend": true}},
+                {"id": "color", "value": {"mode": "fixed", "fixedColor": "green"}}
+              ]
+            },
+            {
+              "matcher": {"id": "byName", "options": "low"},
+              "properties": [
+                {"id": "displayName", "value": "Min"},
+                {"id": "custom.hideFrom", "value": {"tooltip": false, "graph": true, "legend": true}},
+                {"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}
+              ]
+            }
+          ]
+        },
+        "options": {
+          "tooltip": {
+            "mode": "multi",
+            "sort": "none"
+          },
+          "legend": {
+            "displayMode": "table",
+            "placement": "bottom",
+            "showLegend": true,
+            "calcs": ["max", "min", "last"]
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "Market Buy Volume (Green Flame) - USD",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 10},
+        "targets": [
+          {
+            "query": "data = from(bucket: \"binance_data\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r[\"_measurement\"] == \"btc_combined\") |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> map(fn: (r) => ({ r with _value: r.trades_buy_volume * r.close, _field: \"buy_volume_usd\" })) |> drop(columns: [\"trades_buy_volume\", \"close\", \"open\", \"high\", \"low\", \"volume\", \"quote_volume\", \"trades\", \"taker_buy_base\", \"taker_buy_quote\", \"trades_sell_volume\", \"trades_total_quantity\", \"trades_avg_price\", \"trades_total_volume\", \"trades_buy_sell_ratio\", \"trades_count\"])",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "currencyUSD",
+            "decimals": 1,
+            "custom": {
+              "fillOpacity": 80,
+              "gradientMode": "opacity",
+              "lineWidth": 0,
+              "axisPlacement": "right"
+            },
+            "color": {
+              "mode": "fixed",
+              "fixedColor": "green"
+            }
+          }
+        },
+        "options": {
+          "barRadius": 0,
+          "barWidth": 0.97,
+          "drawStyle": "bars",
+          "fillOpacity": 80,
+          "gradientMode": "opacity",
+          "yaxes": [
+            {
+              "label": "",
+              "show": true,
+              "format": "currencyUSD",
+              "decimals": 1
+            },
+            {
+              "label": "Volume (USD)",
+              "show": true,
+              "format": "currencyUSD",
+              "decimals": 1,
+              "side": 1
+            }
+          ],
+          "legend": {
+            "displayMode": "list",
+            "placement": "bottom",
+            "showLegend": true,
+            "calcs": ["sum", "max"]
+          },
+          "lineInterpolation": "linear",
+          "lineWidth": 0,
+          "pointSize": 5,
+          "showPoints": "never",
+          "spanNulls": false,
+          "stacking": {
+            "group": "A",
+            "mode": "none"
+          },
+          "tooltip": {
+            "mode": "multi"
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "Market Sell Volume (Red Flame) - USD",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 10},
+        "targets": [
+          {
+            "query": "data = from(bucket: \"binance_data\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r[\"_measurement\"] == \"btc_combined\") |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> map(fn: (r) => ({ r with _value: r.trades_sell_volume * r.close, _field: \"sell_volume_usd\" })) |> drop(columns: [\"trades_sell_volume\", \"close\", \"open\", \"high\", \"low\", \"volume\", \"quote_volume\", \"trades\", \"taker_buy_base\", \"taker_buy_quote\", \"trades_buy_volume\", \"trades_total_quantity\", \"trades_avg_price\", \"trades_total_volume\", \"trades_buy_sell_ratio\", \"trades_count\"])",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "currencyUSD",
+            "decimals": 1,
+            "custom": {
+              "fillOpacity": 80,
+              "gradientMode": "opacity",
+              "lineWidth": 0,
+              "axisPlacement": "right"
+            },
+            "color": {
+              "mode": "fixed",
+              "fixedColor": "red"
+            }
+          }
+        },
+        "options": {
+          "barRadius": 0,
+          "barWidth": 0.97,
+          "drawStyle": "bars",
+          "fillOpacity": 80,
+          "gradientMode": "opacity",
+          "yaxes": [
+            {
+              "label": "",
+              "show": true,
+              "format": "currencyUSD",
+              "decimals": 1
+            },
+            {
+              "label": "Volume (USD)",
+              "show": true,
+              "format": "currencyUSD",
+              "decimals": 1,
+              "side": 1
+            }
+          ],
+          "legend": {
+            "displayMode": "list",
+            "placement": "bottom",
+            "showLegend": true,
+            "calcs": ["sum", "max"]
+          },
+          "lineInterpolation": "linear",
+          "lineWidth": 0,
+          "pointSize": 5,
+          "showPoints": "never",
+          "spanNulls": false,
+          "stacking": {
+            "group": "A",
+            "mode": "none"
+          },
+          "tooltip": {
+            "mode": "multi"
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "Market Buy/Sell Volume Comparison - USD",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 18},
+        "targets": [
+          {
+            "query": "data = from(bucket: \"binance_data\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r[\"_measurement\"] == \"btc_combined\") |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> map(fn: (r) => ({ r with _value: r.trades_buy_volume * r.close, _field: \"buy_volume_usd\" })) |> drop(columns: [\"trades_buy_volume\", \"close\", \"open\", \"high\", \"low\", \"volume\", \"quote_volume\", \"trades\", \"taker_buy_base\", \"taker_buy_quote\", \"trades_sell_volume\", \"trades_total_quantity\", \"trades_avg_price\", \"trades_total_volume\", \"trades_buy_sell_ratio\", \"trades_count\"])",
+            "refId": "A"
+          },
+          {
+            "query": "data = from(bucket: \"binance_data\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r[\"_measurement\"] == \"btc_combined\") |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\") |> map(fn: (r) => ({ r with _value: r.trades_sell_volume * r.close, _field: \"sell_volume_usd\" })) |> drop(columns: [\"trades_sell_volume\", \"close\", \"open\", \"high\", \"low\", \"volume\", \"quote_volume\", \"trades\", \"taker_buy_base\", \"taker_buy_quote\", \"trades_buy_volume\", \"trades_total_quantity\", \"trades_avg_price\", \"trades_total_volume\", \"trades_buy_sell_ratio\", \"trades_count\"])",
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "currencyUSD",
+            "decimals": 1,
+            "custom": {
+              "fillOpacity": 50,
+              "gradientMode": "opacity"
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {"id": "byName", "options": "buy_volume_usd"},
+              "properties": [
+                {"id": "color", "value": {"mode": "fixed", "fixedColor": "green"}},
+                {"id": "custom.fillOpacity", "value": 50},
+                {"id": "custom.axisPlacement", "value": "right"},
+                {"id": "displayName", "value": "Buy Volume (USD)"}
+              ]
+            },
+            {
+              "matcher": {"id": "byName", "options": "sell_volume_usd"},
+              "properties": [
+                {"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}},
+                {"id": "custom.fillOpacity", "value": 50},
+                {"id": "custom.axisPlacement", "value": "right"},
+                {"id": "displayName", "value": "Sell Volume (USD)"}
+              ]
+            }
+          ]
+        },
+        "options": {
+          "tooltip": {
+            "mode": "multi"
+          },
+          "legend": {
+            "displayMode": "table",
+            "placement": "bottom",
+            "showLegend": true
+          },
+          "yaxes": [
+            {
+              "label": "",
+              "show": true,
+              "format": "currencyUSD",
+              "decimals": 1
+            },
+            {
+              "label": "Volume (USD)",
+              "show": true,
+              "format": "currencyUSD",
+              "decimals": 1,
+              "side": 1
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
+

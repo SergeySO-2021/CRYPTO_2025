@@ -1,0 +1,147 @@
+{
+  "dashboard": {
+    "title": "Binance BTC Advanced Data",
+    "tags": ["crypto", "binance", "btc"],
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "BTC Price (Close)",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+        "targets": [
+          {
+            "query": "from(bucket: \"binance_data\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r[\"_measurement\"] == \"btc_advanced\") |> filter(fn: (r) => r[\"_field\"] == \"close\") |> aggregateWindow(every: 15m, fn: last, createEmpty: false)",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "currencyUSD",
+            "decimals": 2
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "Volume",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+        "targets": [
+          {
+            "query": "from(bucket: \"binance_data\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r[\"_measurement\"] == \"btc_advanced\") |> filter(fn: (r) => r[\"_field\"] == \"volume\") |> aggregateWindow(every: 15m, fn: sum, createEmpty: false)",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Market Buy/Sell Volume",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+        "targets": [
+          {
+            "query": "from(bucket: \"binance_data\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r[\"_measurement\"] == \"btc_advanced\") |> filter(fn: (r) => r[\"_field\"] == \"market_buy_volume\") |> aggregateWindow(every: 15m, fn: sum, createEmpty: false)",
+            "refId": "A"
+          },
+          {
+            "query": "from(bucket: \"binance_data\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r[\"_measurement\"] == \"btc_advanced\") |> filter(fn: (r) => r[\"_field\"] == \"market_sell_volume\") |> aggregateWindow(every: 15m, fn: sum, createEmpty: false)",
+            "refId": "B"
+          }
+        ],
+        "legend": {"showLegend": true}
+      },
+      {
+        "id": 4,
+        "title": "Liquidations",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+        "targets": [
+          {
+            "query": "from(bucket: \"binance_data\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r[\"_measurement\"] == \"btc_advanced\") |> filter(fn: (r) => r[\"_field\"] == \"long_liquidations\") |> aggregateWindow(every: 15m, fn: sum, createEmpty: false)",
+            "refId": "A"
+          },
+          {
+            "query": "from(bucket: \"binance_data\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r[\"_measurement\"] == \"btc_advanced\") |> filter(fn: (r) => r[\"_field\"] == \"short_liquidations\") |> aggregateWindow(every: 15m, fn: sum, createEmpty: false)",
+            "refId": "B"
+          },
+          {
+            "query": "from(bucket: \"binance_data\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r[\"_measurement\"] == \"btc_advanced\") |> filter(fn: (r) => r[\"_field\"] == \"total_liquidations\") |> aggregateWindow(every: 15m, fn: sum, createEmpty: false)",
+            "refId": "C"
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Open Interest",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+        "targets": [
+          {
+            "query": "from(bucket: \"binance_data\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r[\"_measurement\"] == \"btc_advanced\") |> filter(fn: (r) => r[\"_field\"] == \"open_interest\") |> aggregateWindow(every: 15m, fn: last, createEmpty: false)",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          }
+        }
+      },
+      {
+        "id": 6,
+        "title": "Order Book Depth - 3%",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+        "targets": [
+          {
+            "query": "from(bucket: \"binance_data\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r[\"_measurement\"] == \"btc_advanced\") |> filter(fn: (r) => r[\"_field\"] == \"bid_volume_3pct\") |> aggregateWindow(every: 15m, fn: last, createEmpty: false)",
+            "refId": "A"
+          },
+          {
+            "query": "from(bucket: \"binance_data\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r[\"_measurement\"] == \"btc_advanced\") |> filter(fn: (r) => r[\"_field\"] == \"ask_volume_3pct\") |> aggregateWindow(every: 15m, fn: last, createEmpty: false)",
+            "refId": "B"
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Order Book Imbalance (3%, 8%, 15%, 60%)",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 24},
+        "targets": [
+          {
+            "query": "from(bucket: \"binance_data\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r[\"_measurement\"] == \"btc_advanced\") |> filter(fn: (r) => r[\"_field\"] == \"imbalance_3pct\") |> aggregateWindow(every: 15m, fn: last, createEmpty: false)",
+            "refId": "A"
+          },
+          {
+            "query": "from(bucket: \"binance_data\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r[\"_measurement\"] == \"btc_advanced\") |> filter(fn: (r) => r[\"_field\"] == \"imbalance_8pct\") |> aggregateWindow(every: 15m, fn: last, createEmpty: false)",
+            "refId": "B"
+          },
+          {
+            "query": "from(bucket: \"binance_data\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r[\"_measurement\"] == \"btc_advanced\") |> filter(fn: (r) => r[\"_field\"] == \"imbalance_15pct\") |> aggregateWindow(every: 15m, fn: last, createEmpty: false)",
+            "refId": "C"
+          },
+          {
+            "query": "from(bucket: \"binance_data\") |> range(start: v.timeRangeStart, stop: v.timeRangeStop) |> filter(fn: (r) => r[\"_measurement\"] == \"btc_advanced\") |> filter(fn: (r) => r[\"_field\"] == \"imbalance_60pct\") |> aggregateWindow(every: 15m, fn: last, createEmpty: false)",
+            "refId": "D"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "min": -1,
+            "max": 1
+          }
+        }
+      }
+    ],
+    "refresh": "10s",
+    "time": {
+      "from": "now-6h",
+      "to": "now"
+    }
+  }
+}
+
+

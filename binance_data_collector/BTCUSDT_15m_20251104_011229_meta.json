@@ -1,0 +1,51 @@
+{
+  "checkpoint_name": "BTCUSDT_15m_20251104_011229",
+  "created_at": "2025-11-04T01:12:32.879823",
+  "data_keys": [
+    "ohlcv_df",
+    "trades_df",
+    "start_date",
+    "end_date",
+    "current_start_date",
+    "interval",
+    "target_interval",
+    "symbol",
+    "last_checkpoint_time"
+  ],
+  "dataframe_info": {
+    "ohlcv_df": {
+      "rows": 64498,
+      "columns": [
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+        "quote_volume",
+        "trades",
+        "taker_buy_base",
+        "taker_buy_quote"
+      ],
+      "start_date": "2024-01-01T00:00:00",
+      "end_date": "2025-11-02T20:15:00"
+    },
+    "trades_df": {
+      "rows": 76334555,
+      "columns": [
+        "buy_volume",
+        "sell_volume",
+        "price",
+        "quantity"
+      ],
+      "start_date": "2023-12-31T21:00:00.005000",
+      "end_date": "2024-03-30T20:59:59.998000"
+    }
+  },
+  "start_date": "2024-01-01T00:00:00",
+  "end_date": "2025-11-03T05:53:57.244481",
+  "current_start_date": "2025-11-02T20:15:00",
+  "interval": "15m",
+  "target_interval": "15m",
+  "symbol": "BTCUSDT",
+  "last_checkpoint_time": 1762207950.079979
+}

@@ -1,0 +1,22 @@
+# Данные
+data/prepared/*.csv
+data/optimization_periods/*.csv
+
+# Результаты
+results/*.json
+results/*.csv
+results/*.png
+results/*.html
+
+# Временные файлы
+*.pyc
+__pycache__/
+*.log
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+

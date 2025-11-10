@@ -1,0 +1,12 @@
+defaults:
+  - common
+
+name: 'CoinMarket'
+window_size: 10
+train_start_date: '2024-01-31 11:15:00'
+train_end_date: '2025-04-20 06:04:30'
+valid_start_date: '2025-04-20 06:04:30'
+valid_end_date: '2025-07-24 13:32:15'
+features: Date, open, High, Low, close, volume
+indicators_names: rsi macd
+

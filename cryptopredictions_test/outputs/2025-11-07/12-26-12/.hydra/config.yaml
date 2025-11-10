@@ -1,0 +1,30 @@
+validation_method: simple
+symbol: BTCUSDT
+load_path: C:\Users\XE\Desktop\CRYPTO_2025\cryptopredictions_test\data\BTCUSDT-15m-data.csv
+save_dir: results/
+dataset_path: C:\Users\XE\Desktop\CRYPTO_2025\cryptopredictions_test\data\BTCUSDT-15m-data.csv
+dataset_loader:
+  window_size: 5
+  train_start_date: '2018-10-20 13:30:00'
+  train_end_date: '2021-11-10 9:30:00'
+  valid_start_date: '2021-11-10 10:30:00'
+  valid_end_date: '2023-01-16 10:30:00'
+  features: Date, open, High, Low, close, volume
+  indicators_names: rsi macd
+  name: CoinMarket
+model:
+  type: random_forest
+  n_estimators: 1000
+  random_state: 42
+  is_regression: true
+metrics:
+- accuracy_score
+- f1_score
+- recall_score
+- precision_score
+- MAE
+- RMSE
+- MAPE
+- SMAPE
+- MASE
+- MSLE

@@ -1,0 +1,6 @@
+{
+  "val_accuracy": 0.35914716124534607,
+  "test_accuracy": 0.3483208130799823,
+  "our_method_accuracy": 0.0422,
+  "improvement_pct": 725.4047703317116
+}

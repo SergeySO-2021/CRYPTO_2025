@@ -1,0 +1,476 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © BullByte
+
+//@version=6
+indicator("Market Zone Analyzer[BullByte]",shorttitle = "MZA[BullByte]",overlay=false)
+
+// —————————————————————————————
+// Inputs
+// —————————————————————————————
+
+// Theme and Dashboard Settings
+theme               = input.string("Dark",             "Theme",               options=["Light", "Dark"],            group="Dashboard Settings", tooltip="Select the dashboard theme: Light or Dark.")
+detailedDashboard   = input.bool(true,               "Detailed Dashboard",                       group="Dashboard Settings", tooltip="Show detailed columns (Score, Comments) in the dashboard.")
+dashboardSize       = input.string("Small",          "Dashboard Size",       options=["Normal", "Small", "Tiny"], group="Dashboard Settings", tooltip="Adjust the size of the dashboard text and cells.")
+position            = input.string("top_right",       "Dashboard Position",   options=["top_left", "top_right", "bottom_left", "bottom_right"], group="Dashboard Settings", tooltip="Choose where to place the dashboard on the chart.")
+
+// —————————————————————————————
+// Trend Indicators Group
+// —————————————————————————————
+adxLength           = input.int(14,                  "DMI Length / ADX Smoothing",  group="Trend Indicators", tooltip="Length for DMI and ADX calculation.")
+adxThreshold        = input.int(20,                  "ADX Threshold",               group="Trend Indicators", tooltip="Threshold for ADX to determine trend strength.")
+fastMALength        = input.int(20,                  "Fast MA Length",              group="Trend Indicators", tooltip="Length for the fast moving average.")
+slowMALength        = input.int(50,                  "Slow MA Length",              group="Trend Indicators", tooltip="Length for the slow moving average.")
+
+// —————————————————————————————
+// Momentum Indicators Group
+// —————————————————————————————
+rsiLength           = input.int(14,                  "RSI Length",                  group="Momentum Indicators", tooltip="Length for Relative Strength Index calculation.")
+stochKLength        = input.int(14,                  "Stoch %K Length",             group="Momentum Indicators", tooltip="Length for Stochastic %K calculation.")
+macdFast            = input.int(12,                  "MACD Fast",                   group="Momentum Indicators", tooltip="Fast length for MACD calculation.")
+macdSlow            = input.int(26,                  "MACD Slow",                   group="Momentum Indicators", tooltip="Slow length for MACD calculation.")
+macdSignal          = input.int(9,                   "MACD Signal",                 group="Momentum Indicators", tooltip="Signal length for MACD calculation.")
+
+// —————————————————————————————
+// Price Action Indicators Group
+// —————————————————————————————
+hhllRange           = input.int(20,                  "HH/LL Range",                 group="Price Action Indicators", tooltip="Lookback period for Highest High / Lowest Low calculation.")
+haDojiRange         = input.int(5,                   "HA Doji Range",               group="Price Action Indicators", tooltip="Lookback period for Heikin Ashi Doji calculation.")
+candleRangeLength   = input.int(8,                   "Candle Range Length",         group="Price Action Indicators", tooltip="Lookback period for Candle Range calculation.")
+
+// —————————————————————————————
+// Market Activity Indicators Group
+// —————————————————————————————
+bbLength            = input.int(20,                  "BB Length",                   group="Market Activity Indicators", tooltip="Length for Bollinger Bands calculation.")
+bbMultiplier        = input.float(2.0,               "BB Multiplier",               group="Market Activity Indicators", tooltip="Multiplier for Bollinger Bands width.")
+atrLength           = input.int(14,                  "ATR Length",                  group="Market Activity Indicators", tooltip="Length for Average True Range calculation.")
+kcLength            = input.int(20,                  "KC Length",                   group="Market Activity Indicators", tooltip="Length for Keltner Channels calculation.")
+kcMultiplier        = input.float(1.5,               "KC Multiplier",               group="Market Activity Indicators", tooltip="Multiplier for Keltner Channels width.")
+volumeMALength      = input.int(20,                  "Volume MA Length",            group="Market Activity Indicators", tooltip="Length for Volume moving average calculation.")
+
+// —————————————————————————————
+// Weight Inputs Group
+// —————————————————————————————
+trendWeightBase     = input.float(40,                 "Trend Strength Weight (%)",   minval=0, maxval=100, group="Weights", tooltip="Base weight for Trend Strength in the overall score.")
+momentumWeightBase  = input.float(30,                 "Momentum Weight (%)",         minval=0, maxval=100, group="Weights", tooltip="Base weight for Momentum in the overall score.")
+priceActionWeightBase = input.float(30,               "Price Action Weight (%)",     minval=0, maxval=100, group="Weights", tooltip="Base weight for Price Action in the overall score.")
+
+// —————————————————————————————
+// Stability Controls Group
+// —————————————————————————————
+useSmoothing        = input.bool(true,               "Smooth Market Activity",      group="Stability Controls", tooltip="Enable smoothing to reduce fluctuations in Market Activity. If disabled, use a higher timeframe (e.g., 1H or 4H) to minimize noise.")
+useHysteresis       = input.bool(true,               "Use Hysteresis for Stability",group="Stability Controls", tooltip="Enable to prevent rapid changes in Zone and weights. Disable for faster response (may increase fluctuations).")
+
+// —————————————————————————————
+// Theme Setup
+// —————————————————————————————
+isLightTheme = theme == "Light"
+textColorDefault = theme == "Dark" ? color.new(#FFFFFF, 0) : color.new(#000000, 0)
+
+// —————————————————————————————
+// Indicator Calculations
+// —————————————————————————————
+
+// Trend Indicators
+[diPlus, diMinus, adx] = ta.dmi(adxLength, adxLength)
+fastMA = ta.sma(close, fastMALength)
+slowMA = ta.sma(close, slowMALength)
+maSlope = fastMA - slowMA
+tenkan = (ta.highest(high, 9) + ta.lowest(low, 9)) / 2
+kijun = (ta.highest(high, 26) + ta.lowest(low, 26)) / 2
+senkouA = (tenkan + kijun) / 2
+senkouB = (ta.highest(high, 52) + ta.lowest(low, 52)) / 2
+ichiDiff = senkouA - senkouB
+
+// Momentum Indicators
+rsi = ta.rsi(close, rsiLength)
+rsiMA = ta.sma(rsi, rsiLength)
+rsiStd = ta.stdev(rsi, rsiLength)
+rsiUpperBound = rsiMA + rsiStd
+rsiLowerBound = rsiMA - rsiStd
+stochK = ta.stoch(close, high, low, stochKLength)
+stochMA = ta.sma(stochK, stochKLength)
+stochStd = ta.stdev(stochK, stochKLength)
+stochUpperBound = stochMA + stochStd
+stochLowerBound = stochMA - stochStd
+[macdLine, signalLine, macdHist] = ta.macd(close, macdFast, macdSlow, macdSignal)
+
+// Price Action Indicators
+highestHigh = ta.highest(high, hhllRange)
+lowestLow = ta.lowest(low, hhllRange)
+priceRange = highestHigh - lowestLow
+haTicker = ticker.heikinashi(syminfo.tickerid)
+[haOpen, haHigh, haLow, haClose] = request.security(haTicker, timeframe.period, [open, high, low, close])
+haBody = math.abs(haClose - haOpen)
+stdevHL = ta.stdev(high - low, haDojiRange)
+candleRange = high - low
+avgCandleRange = ta.sma(candleRange, candleRangeLength)
+rangeStd = ta.stdev(candleRange, candleRangeLength)
+rangeUpperBound = avgCandleRange + 0.8 * rangeStd
+rangeLowerBound = avgCandleRange - 0.8 * rangeStd
+
+// Market Activity Indicators
+[bbUpper, bbMiddle, bbLower] = ta.bb(close, bbLength, bbMultiplier)
+bbWidth = bbUpper - bbLower
+bbWidthMA = ta.sma(bbWidth, bbLength)
+bbLowerBound = bbWidthMA * 0.5
+bbUpperBound = bbWidthMA * 1.5
+atr = ta.atr(atrLength)
+atrMA = ta.sma(atr, atrLength)
+ema = ta.ema(close, kcLength)
+atrKC = ta.atr(kcLength)
+kcUpper = ema + kcMultiplier * atrKC
+kcLower = ema - kcMultiplier * atrKC
+kcWidth = kcUpper - kcLower
+kcWidthMA = ta.sma(kcWidth, kcLength)
+kcLowerBound = kcWidthMA * 0.5
+kcUpperBound = kcWidthMA * 1.5
+volMA = ta.sma(volume, volumeMALength)
+volStd = ta.stdev(volume, volumeMALength)
+volUpperBound = volMA + volStd
+volLowerBound = volMA - volStd
+
+// —————————————————————————————
+// Scoring Logic
+// —————————————————————————————
+adxScore = adx >= adxThreshold ? (diPlus > diMinus ? 1 : diMinus > diPlus ? -1 : 0) : 0
+maSlopeScore = maSlope > 0 ? 1 : maSlope < 0 ? -1 : 0
+ichiDiffScore = ichiDiff > 0 ? 1 : ichiDiff < 0 ? -1 : 0
+trendScore = adxScore + maSlopeScore + ichiDiffScore
+trendRegime = trendScore >= 2 ? "BULLISH" : trendScore <= -2 ? "BEARISH" : "SIDEWAYS"
+trendComment = trendScore >= 2 ? "Highly Bullish" : trendScore <= -2 ? "Highly Bearish" : "Neutral Trend"
+
+rsiScore = rsi > rsiUpperBound ? 1 : rsi < rsiLowerBound ? -1 : 0
+stochKScore = stochK > stochUpperBound ? 1 : stochK < stochLowerBound ? -1 : 0
+macdHistScore = macdHist > 0 ? 1 : macdHist < 0 ? -1 : 0
+momentumScore = rsiScore + stochKScore + macdHistScore
+momentumRegime = momentumScore >= 2 ? "BULLISH" : momentumScore <= -2 ? "BEARISH" : "SIDEWAYS"
+momentumComment = momentumScore >= 2 ? "Strong Momentum" : momentumScore <= -2 ? "Weak Momentum" : "Neutral Momentum"
+
+hhllScore = priceRange <= atr ? 0 : (close >= highestHigh * 0.99 and maSlope > 0) ? 1 : (close <= lowestLow * 1.01 and maSlope < 0) ? -1 : 0
+haDojiScore = haBody <= stdevHL ? 0 : (haClose > haOpen and maSlope > 0) ? 1 : (haClose < haOpen and maSlope < 0) ? -1 : 0
+candleRangeScore = candleRange > rangeUpperBound ? (trendRegime == "BULLISH" ? 1 : trendRegime == "BEARISH" ? -1 : 0) :
+                   candleRange < rangeLowerBound ? (trendRegime == "BULLISH" ? -1 : trendRegime == "BEARISH" ? 1 : 0) : 0
+priceActionScore = hhllScore + haDojiScore + candleRangeScore
+priceActionRegime = priceActionScore >= 2 ? "BULLISH" : priceActionScore <= -2 ? "BEARISH" : "SIDEWAYS"
+priceActionComment = priceActionScore >= 2 ? "Bullish Action" : priceActionScore <= -2 ? "Bearish Action" : "Neutral Action"
+
+bbVolatilityScore = bbWidth > bbUpperBound ? 1 : bbWidth < bbLowerBound ? -1 : 0
+atrVolatilityScore = atr > (atrMA + ta.stdev(atr, atrLength)) ? 1 : atr < (atrMA - ta.stdev(atr, atrLength)) ? -1 : 0
+kcVolatilityScore = kcWidth > kcUpperBound ? 1 : kcWidth < kcLowerBound ? -1 : 0
+volumeScore = volume > volUpperBound ? 1 : volume < volLowerBound ? -1 : 0
+marketActivityRaw = bbVolatilityScore + atrVolatilityScore + kcVolatilityScore + volumeScore
+marketActivity = useSmoothing ? ta.sma(marketActivityRaw, 3) : marketActivityRaw
+currentActivityState = marketActivity >= 2 ? "High" : marketActivity <= -2 ? "Low" : "Medium"
+
+var string lastActivityState = "Medium"
+var int activityStateCounter = 0
+activityStateCounter := useHysteresis ? (currentActivityState == lastActivityState ? activityStateCounter + 1 : 1) : 1
+lastActivityState := useHysteresis ? currentActivityState : lastActivityState
+useActivityState = useHysteresis ? (activityStateCounter >= 2 ? currentActivityState : lastActivityState) : currentActivityState
+activityComment = useActivityState == "High" ? "Volatile Market" : useActivityState == "Low" ? "Calm Market" : "Stable Market"
+
+totalWeight = trendWeightBase + momentumWeightBase + priceActionWeightBase
+trendWeightNorm = trendWeightBase / totalWeight
+momentumWeightNorm = momentumWeightBase / totalWeight
+priceActionWeightNorm = priceActionWeightBase / totalWeight
+trendWeight = useActivityState == "High" ? 0.50 : useActivityState == "Low" ? 0.25 : trendWeightNorm
+momentumWeight = useActivityState == "High" ? 0.35 : useActivityState == "Low" ? 0.20 : momentumWeightNorm
+priceActionWeight = useActivityState == "High" ? 0.15 : useActivityState == "Low" ? 0.55 : priceActionWeightNorm
+
+netScore = (trendScore * trendWeight) + (momentumScore * momentumWeight) + (priceActionScore * priceActionWeight)
+netScoreSmoothed = ta.sma(netScore, 2)
+currentZone = netScoreSmoothed >= 2 ? "BULLISH" : netScoreSmoothed <= -2 ? "BEARISH" : "SIDEWAYS"
+
+var string lastZone = "SIDEWAYS"
+var int zoneCounter = 0
+zoneCounter := useHysteresis ? (currentZone == lastZone ? zoneCounter + 1 : 1) : 1
+lastZone := useHysteresis ? currentZone : lastZone
+finalZone = useHysteresis ? (zoneCounter >= 2 ? currentZone : lastZone) : currentZone
+
+posCount = (adxScore == 1 ? 1 : 0) + (maSlopeScore == 1 ? 1 : 0) + (ichiDiffScore == 1 ? 1 : 0) +
+           (rsiScore == 1 ? 1 : 0) + (stochKScore == 1 ? 1 : 0) + (macdHistScore == 1 ? 1 : 0) +
+           (hhllScore == 1 ? 1 : 0) + (haDojiScore == 1 ? 1 : 0) + (candleRangeScore == 1 ? 1 : 0)
+negCount = (adxScore == -1 ? 1 : 0) + (maSlopeScore == -1 ? 1 : 0) + (ichiDiffScore == -1 ? 1 : 0) +
+           (rsiScore == -1 ? 1 : 0) + (stochKScore == -1 ? 1 : 0) + (macdHistScore == -1 ? 1 : 0) +
+           (hhllScore == -1 ? 1 : 0) + (haDojiScore == -1 ? 1 : 0) + (candleRangeScore == -1 ? 1 : 0)
+
+// —————————————————————————————
+// Dashboard Setup
+// —————————————————————————————
+bullishComments = array.new_string(3, na)
+array.set(bullishComments, 0, "Highly Bullish")
+array.set(bullishComments, 1, "Strong Momentum")
+array.set(bullishComments, 2, "Bullish Action")
+
+bearishComments = array.new_string(3, na)
+array.set(bearishComments, 0, "Highly Bearish")
+array.set(bearishComments, 1, "Weak Momentum")
+array.set(bearishComments, 2, "Bearish Action")
+
+stateFromScore(score) =>
+    score == 1 ? "BULL" : score == -1 ? "BEAR" : "SIDEWAYS"
+
+regimeWithIcon(regime) =>
+    regime
+
+colorFromRegime(regime) =>
+    regime == "BULLISH" ? color.new(#98FB98, 85) : regime == "BEARISH" ? color.new(#FFA07A, 85) : theme == "Dark" ? color.new(#4A4A4A, 85) : color.new(#D3D3D3, 85)
+
+colorFromHeader(regime) =>
+    regime == "BULLISH" ? color.new(#98FB98, 85) : regime == "BEARISH" ? color.new(#FFA07A, 85) : theme == "Dark" ? color.new(#4A4A4A, 85) : color.new(#D3D3D3, 85)
+
+colorFromScore(score) =>
+    score == 1 ? color.new(#98FB98, 85) : score == -1 ? color.new(#FFA07A, 85) : theme == "Dark" ? color.new(#4A4A4A, 85) : color.new(#D3D3D3, 85)
+
+colorFromZone(zone) =>
+    zone == "BULLISH" ? color.new(#98FB98, 85) : zone == "BEARISH" ? color.new(#FFA07A, 85) : theme == "Dark" ? color.new(#4A4A4A, 85) : color.new(#D3D3D3, 85)
+
+colorFromActivityScore(score) =>
+    score == 1 ? color.new(#98FB98, 85) : score == -1 ? color.new(#FFA07A, 85) : theme == "Dark" ? color.new(#4A4A4A, 85) : color.new(#D3D3D3, 85)
+
+colorFromActivityState(state) =>
+    state == "High" ? color.new(#FFD700, 85) : state == "Low" ? color.new(#87CEEB, 85) : theme == "Dark" ? color.new(#4A4A4A, 85) : color.new(#D3D3D3, 85)
+
+colorFromDominantCategory(impact) =>
+    impact == "Trend Dominant" ? color.new(#98FB98, 85) : impact == "Momentum Dominant" ? color.new(#FFD700, 85) : color.new(#FFA07A, 85)
+
+bgColorFromComment(comment) =>
+    var color bg_color = color.new(#D3D3D3, 85)  // Default for Light theme
+    if array.includes(bullishComments, comment)
+        bg_color := color.new(#98FB98, 85)  // Bullish: light green
+    else if array.includes(bearishComments, comment)
+        bg_color := color.new(#FFA07A, 85)  // Bearish: light orange
+    else if theme == "Dark"
+        bg_color := color.new(#4A4A4A, 85)  // Neutral, Dark theme: dark gray
+    bg_color
+
+textColorFromRegime(regime) =>
+    regime == "BULLISH" ? color.new(#00FF00, 0) : regime == "BEARISH" ? color.new(#FF0000, 0) : textColorDefault
+
+textColorFromScore(score) =>
+    score == 1 ? color.new(#00FF00, 0) : score == -1 ? color.new(#FF0000, 0) : textColorDefault
+
+textColorFromZone(zone) =>
+    zone == "BULLISH" ? color.new(#00FF00, 0) : zone == "BEARISH" ? color.new(#FF0000, 0) : textColorDefault
+
+textColorFromComment(comment) =>
+    array.includes(bullishComments, comment) ? color.new(#00FF00, 0) : array.includes(bearishComments, comment) ? color.new(#FF0000, 0) : textColorDefault
+
+formatVolume(volumeValue) =>
+    absVol = math.abs(volumeValue)
+    if absVol >= 1e6
+        str.tostring(math.round(absVol / 1e6, 2)) + "M"
+    else if absVol >= 1e3
+        str.tostring(math.round(absVol / 1e3, 2)) + "K"
+    else if absVol >= 100
+        str.tostring(math.round(absVol / 100, 2)) + "H"
+    else
+        str.tostring(math.round(absVol, 2))
+
+
+commentFromIndicator(indicator, score) =>
+    var string comment = "N/A"
+    if indicator == "ADX"
+        comment := score == 1 ? "Strong bullish trend" : score == -1 ? "Strong bearish trend" : "Trend strength below threshold"
+    else if indicator == "MA Slope"
+        comment := score == 1 ? "Fast MA above slow MA" : score == -1 ? "Fast MA below slow MA" : "MA crossover neutral"
+    else if indicator == "Ichimoku Diff"
+        comment := score == 1 ? "Senkou A above B" : score == -1 ? "Senkou A below B" : "Ichimoku neutral"
+    else if indicator == "RSI"
+        comment := score == 1 ? "RSI above dynamic threshold" : score == -1 ? "RSI below dynamic threshold" : "RSI neutral"
+    else if indicator == "Stoch %K"
+        comment := score == 1 ? "Stochastic above threshold" : score == -1 ? "Stochastic below threshold" : "Stochastic neutral"
+    else if indicator == "MACD Hist"
+        comment := score == 1 ? "MACD histogram positive" : score == -1 ? "MACD histogram negative" : "MACD neutral"
+    else if indicator == "HH/LL Flat"
+        comment := score == 1 ? "Price near highs" : score == -1 ? "Price near lows" : "Price within range"
+    else if indicator == "HA Doji"
+        comment := score == 1 ? "Bullish Heikin Ashi" : score == -1 ? "Bearish Heikin Ashi" : "Doji or small body"
+    else if indicator == "Candle Range"
+        comment := score == 1 ? "Large range, trend confirmed" : score == -1 ? "Small range, trend contradicted" : "Range neutral"
+    comment
+
+trendContribution = trendScore * trendWeight
+momentumContribution = momentumScore * momentumWeight
+priceActionContribution = priceActionScore * priceActionWeight
+maxContribution = math.max(math.abs(trendContribution), math.abs(momentumContribution), math.abs(priceActionContribution))
+weightImpact = maxContribution == math.abs(trendContribution) ? "Trend Dominant" :
+               maxContribution == math.abs(momentumContribution) ? "Momentum Dominant" :
+               "Price Action Dominant"
+
+marketContext = useActivityState == "High" ? "High activity, trend and momentum prioritized." : useActivityState == "Low" ? "Low activity, price action prioritized." : "Balanced market, all categories considered."
+
+cellTextSize = dashboardSize == "Tiny" ? size.tiny : dashboardSize == "Small" ? size.small : size.normal
+headerTextSize = dashboardSize == "Tiny" ? size.tiny : dashboardSize == "Small" ? size.small : size.normal
+borderWidth = dashboardSize == "Tiny" ? 1 : dashboardSize == "Small" ? 2 : 3
+borderColor = color.new(#FFD700, 0)
+frameColor = theme == "Dark" ? color.new(#4682B4, 40) : color.new(#87CEEB, 40)
+headerBgColor = theme == "Dark" ? color.new(#4682B4, 80) : color.new(#87CEEB, 80)
+overallBgColor = theme == "Dark" ? color.new(#4682B4, 50) : color.new(#87CEEB, 50)
+tableWidth = detailedDashboard ? 5 : 3
+tableHeight = detailedDashboard ? 17 : 7
+tablePosition = position == "top_left" ? position.top_left : position == "top_right" ? position.top_right : position == "bottom_left" ? position.bottom_left : position.bottom_right
+
+tbl = table.new(tablePosition, tableWidth, tableHeight, border_width=borderWidth, border_color=borderColor, frame_color=frameColor, frame_width=borderWidth, force_overlay=true)
+
+// —————————————————————————————
+// Dashboard Rendering
+// —————————————————————————————
+themeDebugTooltip = "Theme: " + theme + "\nDefault Font Color: " + (theme == "Dark" ? "FFFFFF" : "000000")
+table.cell(tbl, 0, 0, "INDICATOR", bgcolor=headerBgColor, text_size=headerTextSize, text_color=textColorDefault, tooltip=themeDebugTooltip)
+table.cell(tbl, 1, 0, "VALUE", bgcolor=headerBgColor, text_size=headerTextSize, text_halign=text.align_center, text_color=textColorDefault)
+table.cell(tbl, 2, 0, "REGIME", bgcolor=headerBgColor, text_size=headerTextSize, text_color=textColorDefault)
+if detailedDashboard
+    table.cell(tbl, 3, 0, "SCORE", bgcolor=headerBgColor, text_size=headerTextSize, text_halign=text.align_center, text_color=textColorDefault)
+    table.cell(tbl, 4, 0, "COMMENTS", bgcolor=headerBgColor, text_size=headerTextSize, text_color=textColorDefault)
+
+// Trend Section
+table.cell(tbl, 0, 1, "TREND STRENGTH", text_size=headerTextSize, tooltip="Measures the strength and direction of the market trend.", text_color=textColorDefault)
+if detailedDashboard
+    table.cell(tbl, 1, 1, regimeWithIcon(trendRegime), text_color=textColorFromRegime(trendRegime), bgcolor=colorFromHeader(trendRegime), text_size=cellTextSize)
+    table.cell(tbl, 2, 1, str.tostring(trendScore), text_color=textColorDefault, bgcolor=theme == "Dark" ? color.new(#4A4A4A, 85) : color.new(#D3D3D3, 85), text_size=cellTextSize, text_halign=text.align_center)
+    table.cell(tbl, 3, 1, str.tostring(math.round(trendScore * trendWeight, 2)), text_size=cellTextSize, text_color=textColorDefault, tooltip="Weighted contribution to overall score (Score × Weight).")
+    table.cell(tbl, 4, 1, trendComment, text_size=cellTextSize, text_color=textColorFromComment(trendComment), bgcolor=bgColorFromComment(trendComment))
+else
+    table.cell(tbl, 1, 1, trendComment, text_color=textColorFromComment(trendComment), bgcolor=bgColorFromComment(trendComment), text_size=cellTextSize)
+    table.cell(tbl, 2, 1, regimeWithIcon(trendRegime), text_color=textColorFromRegime(trendRegime), bgcolor=colorFromHeader(trendRegime), text_size=cellTextSize, text_halign=text.align_center)
+
+if detailedDashboard
+    table.cell(tbl, 0, 2, "ADX", text_size=cellTextSize, text_color=textColorDefault)
+    table.cell(tbl, 1, 2, str.tostring(adx, "#.##"), text_size=cellTextSize, text_halign=text.align_center, text_color=textColorDefault)
+    table.cell(tbl, 2, 2, stateFromScore(adxScore), text_color=textColorFromScore(adxScore), bgcolor=colorFromScore(adxScore), text_size=cellTextSize)
+    table.cell(tbl, 3, 2, str.tostring(adxScore), text_size=cellTextSize, text_halign=text.align_center, text_color=textColorDefault)
+    table.cell(tbl, 4, 2, commentFromIndicator("ADX", adxScore), text_size=cellTextSize, text_color=textColorDefault)
+
+    table.cell(tbl, 0, 3, "MA Slope", text_size=cellTextSize, text_color=textColorDefault)
+    table.cell(tbl, 1, 3, str.tostring(maSlope, "#.##"), text_size=cellTextSize, text_halign=text.align_center, text_color=textColorDefault)
+    table.cell(tbl, 2, 3, stateFromScore(maSlopeScore), text_color=textColorFromScore(maSlopeScore), bgcolor=colorFromScore(maSlopeScore), text_size=cellTextSize)
+    table.cell(tbl, 3, 3, str.tostring(maSlopeScore), text_size=cellTextSize, text_halign=text.align_center, text_color=textColorDefault)
+    table.cell(tbl, 4, 3, commentFromIndicator("MA Slope", maSlopeScore), text_size=cellTextSize, text_color=textColorDefault)
+
+    table.cell(tbl, 0, 4, "Ichimoku Diff", text_size=cellTextSize, text_color=textColorDefault)
+    table.cell(tbl, 1, 4, str.tostring(ichiDiff, "#.##"), text_size=cellTextSize, text_halign=text.align_center, text_color=textColorDefault)
+    table.cell(tbl, 2, 4, stateFromScore(ichiDiffScore), text_color=textColorFromScore(ichiDiffScore), bgcolor=colorFromScore(ichiDiffScore), text_size=cellTextSize)
+    table.cell(tbl, 3, 4, str.tostring(ichiDiffScore), text_size=cellTextSize, text_halign=text.align_center, text_color=textColorDefault)
+    table.cell(tbl, 4, 4, commentFromIndicator("Ichimoku Diff", ichiDiffScore), text_size=cellTextSize, text_color=textColorDefault)
+
+// Momentum Section
+rowOffset = detailedDashboard ? 4 : 1
+table.cell(tbl, 0, rowOffset + 1, "MOMENTUM", text_size=headerTextSize, tooltip="Evaluates the strength of market momentum.", text_color=textColorDefault)
+if detailedDashboard
+    table.cell(tbl, 1, rowOffset + 1, regimeWithIcon(momentumRegime), text_color=textColorFromRegime(momentumRegime), bgcolor=colorFromHeader(momentumRegime), text_size=cellTextSize)
+    table.cell(tbl, 2, rowOffset + 1, str.tostring(momentumScore), text_color=textColorDefault, bgcolor=theme == "Dark" ? color.new(#4A4A4A, 85) : color.new(#D3D3D3, 85), text_size=cellTextSize, text_halign=text.align_center)
+    table.cell(tbl, 3, rowOffset + 1, str.tostring(math.round(momentumScore * momentumWeight, 2)), text_size=cellTextSize, text_color=textColorDefault, tooltip="Weighted contribution to overall score (Score × Weight).")
+    table.cell(tbl, 4, rowOffset + 1, momentumComment, text_size=cellTextSize, text_color=textColorFromComment(momentumComment), bgcolor=bgColorFromComment(momentumComment))
+else
+    table.cell(tbl, 1, rowOffset + 1, momentumComment, text_color=textColorFromComment(momentumComment), bgcolor=bgColorFromComment(momentumComment), text_size=cellTextSize)
+    table.cell(tbl, 2, rowOffset + 1, regimeWithIcon(momentumRegime), text_color=textColorFromRegime(momentumRegime), bgcolor=colorFromHeader(momentumRegime), text_size=cellTextSize, text_halign=text.align_center)
+
+if detailedDashboard
+    table.cell(tbl, 0, rowOffset + 2, "RSI", text_size=cellTextSize, text_color=textColorDefault)
+    table.cell(tbl, 1, rowOffset + 2, str.tostring(rsi, "#.##"), text_size=cellTextSize, text_halign=text.align_center, text_color=textColorDefault)
+    table.cell(tbl, 2, rowOffset + 2, stateFromScore(rsiScore), text_color=textColorFromScore(rsiScore), bgcolor=colorFromScore(rsiScore), text_size=cellTextSize)
+    table.cell(tbl, 3, rowOffset + 2, str.tostring(rsiScore), text_size=cellTextSize, text_halign=text.align_center, text_color=textColorDefault)
+    table.cell(tbl, 4, rowOffset + 2, commentFromIndicator("RSI", rsiScore), text_size=cellTextSize, text_color=textColorDefault)
+
+    table.cell(tbl, 0, rowOffset + 3, "Stoch %K", text_size=cellTextSize, text_color=textColorDefault)
+    table.cell(tbl, 1, rowOffset + 3, str.tostring(stochK, "#.##"), text_size=cellTextSize, text_halign=text.align_center, text_color=textColorDefault)
+    table.cell(tbl, 2, rowOffset + 3, stateFromScore(stochKScore), text_color=textColorFromScore(stochKScore), bgcolor=colorFromScore(stochKScore), text_size=cellTextSize)
+    table.cell(tbl, 3, rowOffset + 3, str.tostring(stochKScore), text_size=cellTextSize, text_halign=text.align_center, text_color=textColorDefault)
+    table.cell(tbl, 4, rowOffset + 3, commentFromIndicator("Stoch %K", stochKScore), text_size=cellTextSize, text_color=textColorDefault)
+
+    table.cell(tbl, 0, rowOffset + 4, "MACD Hist", text_size=cellTextSize, text_color=textColorDefault)
+    table.cell(tbl, 1, rowOffset + 4, str.tostring(macdHist, "#.##"), text_size=cellTextSize, text_halign=text.align_center, text_color=textColorDefault)
+    table.cell(tbl, 2, rowOffset + 4, stateFromScore(macdHistScore), text_color=textColorFromScore(macdHistScore), bgcolor=colorFromScore(macdHistScore), text_size=cellTextSize)
+    table.cell(tbl, 3, rowOffset + 4, str.tostring(macdHistScore), text_size=cellTextSize, text_halign=text.align_center, text_color=textColorDefault)
+    table.cell(tbl, 4, rowOffset + 4, commentFromIndicator("MACD Hist", macdHistScore), text_size=cellTextSize, text_color=textColorDefault)
+
+// Price Action Section
+rowOffset := rowOffset + (detailedDashboard ? 4 : 1)
+priceActionTooltip = "Analyzes price patterns and market behavior.\nScore: " + str.tostring(priceActionScore) + "\nHH/LL Score: " + str.tostring(hhllScore) + "\nHA Doji Score: " + str.tostring(haDojiScore) + "\nCandle Range Score: " + str.tostring(candleRangeScore)
+table.cell(tbl, 0, rowOffset + 1, "PRICE ACTION", text_size=headerTextSize, tooltip=priceActionTooltip, text_color=textColorDefault)
+if detailedDashboard
+    table.cell(tbl, 1, rowOffset + 1, regimeWithIcon(priceActionRegime), text_color=textColorFromRegime(priceActionRegime), bgcolor=colorFromHeader(priceActionRegime), text_size=cellTextSize)
+    table.cell(tbl, 2, rowOffset + 1, str.tostring(priceActionScore), text_color=textColorDefault, bgcolor=theme == "Dark" ? color.new(#4A4A4A, 85) : color.new(#D3D3D3, 85), text_size=cellTextSize, text_halign=text.align_center)
+    table.cell(tbl, 3, rowOffset + 1, str.tostring(math.round(priceActionScore * priceActionWeight, 2)), text_size=cellTextSize, text_color=textColorDefault, tooltip="Weighted contribution to overall score (Score × Weight).")
+    table.cell(tbl, 4, rowOffset + 1, priceActionComment, text_size=cellTextSize, text_color=textColorFromComment(priceActionComment), bgcolor=bgColorFromComment(priceActionComment))
+else
+    table.cell(tbl, 1, rowOffset + 1, priceActionComment, text_color=textColorFromComment(priceActionComment), bgcolor=bgColorFromComment(priceActionComment), text_size=cellTextSize)
+    table.cell(tbl, 2, rowOffset + 1, regimeWithIcon(priceActionRegime), text_color=textColorFromRegime(priceActionRegime), bgcolor=colorFromHeader(priceActionRegime), text_size=cellTextSize, text_halign=text.align_center)
+
+if detailedDashboard
+    table.cell(tbl, 0, rowOffset + 2, "HH/LL Flat", text_size=cellTextSize, text_color=textColorDefault)
+    table.cell(tbl, 1, rowOffset + 2, str.tostring(priceRange, "#.##"), text_size=cellTextSize, text_halign=text.align_center, text_color=textColorDefault)
+    table.cell(tbl, 2, rowOffset + 2, stateFromScore(hhllScore), text_color=textColorFromScore(hhllScore), bgcolor=colorFromScore(hhllScore), text_size=cellTextSize)
+    table.cell(tbl, 3, rowOffset + 2, str.tostring(hhllScore), text_size=cellTextSize, text_halign=text.align_center, text_color=textColorDefault)
+    table.cell(tbl, 4, rowOffset + 2, commentFromIndicator("HH/LL Flat", hhllScore), text_size=cellTextSize, text_color=textColorDefault)
+
+    table.cell(tbl, 0, rowOffset + 3, "HA Doji", text_size=cellTextSize, text_color=textColorDefault)
+    table.cell(tbl, 1, rowOffset + 3, str.tostring(haBody, "#.##"), text_size=cellTextSize, text_halign=text.align_center, text_color=textColorDefault)
+    table.cell(tbl, 2, rowOffset + 3, stateFromScore(haDojiScore), text_color=textColorFromScore(haDojiScore), bgcolor=colorFromScore(haDojiScore), text_size=cellTextSize)
+    table.cell(tbl, 3, rowOffset + 3, str.tostring(haDojiScore), text_size=cellTextSize, text_halign=text.align_center, text_color=textColorDefault)
+    table.cell(tbl, 4, rowOffset + 3, commentFromIndicator("HA Doji", haDojiScore), text_size=cellTextSize, text_color=textColorDefault)
+
+    table.cell(tbl, 0, rowOffset + 4, "Candle Range", text_size=cellTextSize, text_color=textColorDefault)
+    table.cell(tbl, 1, rowOffset + 4, str.tostring(candleRange, "#.##"), text_size=cellTextSize, text_halign=text.align_center, text_color=textColorDefault)
+    table.cell(tbl, 2, rowOffset + 4, stateFromScore(candleRangeScore), text_color=textColorFromScore(candleRangeScore), bgcolor=colorFromScore(candleRangeScore), text_size=cellTextSize)
+    table.cell(tbl, 3, rowOffset + 4, str.tostring(candleRangeScore), text_size=cellTextSize, text_halign=text.align_center, text_color=textColorDefault)
+    table.cell(tbl, 4, rowOffset + 4, commentFromIndicator("Candle Range", candleRangeScore), text_size=cellTextSize, text_color=textColorDefault)
+
+// Market Activity Section
+rowOffset := rowOffset + (detailedDashboard ? 4 : 1)
+if detailedDashboard
+    table.cell(tbl, 0, rowOffset + 1, "MARKET ACTIVITY METRICS", bgcolor=theme == "Dark" ? color.new(#4A4A4A, 80) : color.new(#D3D3D3, 80), text_size=headerTextSize, tooltip="Metrics used to determine market activity level.", text_color=textColorDefault)
+    table.cell(tbl, 1, rowOffset + 1, "BBW: " + str.tostring(bbWidth, "#.##"), bgcolor=colorFromActivityScore(bbVolatilityScore), text_size=cellTextSize, text_halign=text.align_center, text_color=textColorDefault)
+    table.cell(tbl, 2, rowOffset + 1, "ATR: " + str.tostring(atr, "#.##"), bgcolor=colorFromActivityScore(atrVolatilityScore), text_size=cellTextSize, text_halign=text.align_center, text_color=textColorDefault)
+    table.cell(tbl, 3, rowOffset + 1, "KCW: " + str.tostring(kcWidth, "#.##"), bgcolor=colorFromActivityScore(kcVolatilityScore), text_size=cellTextSize, text_halign=text.align_center, text_color=textColorDefault)
+    table.cell(tbl, 4, rowOffset + 1, "Vol: " + formatVolume(volume), bgcolor=colorFromActivityScore(volumeScore), text_size=cellTextSize, text_halign=text.align_center, text_color=textColorDefault)
+
+table.cell(tbl, 0, rowOffset + (detailedDashboard ? 2 : 1), "MARKET ACTIVITY STATE", bgcolor=colorFromActivityState(useActivityState), text_size=headerTextSize, tooltip="Current market activity state based on volatility and volume.", text_color=textColorDefault)
+table.cell(tbl, 1, rowOffset + (detailedDashboard ? 2 : 1), detailedDashboard ? "Score: " + str.tostring(marketActivity, "#.##") : activityComment, bgcolor=colorFromActivityState(useActivityState), text_size=cellTextSize, text_halign=text.align_center, text_color=textColorDefault)
+table.cell(tbl, 2, rowOffset + (detailedDashboard ? 2 : 1), useActivityState, bgcolor=colorFromActivityState(useActivityState), text_size=cellTextSize, text_halign=text.align_center, text_color=textColorDefault)
+if detailedDashboard
+    table.cell(tbl, 3, rowOffset + 2, activityComment, bgcolor=colorFromActivityState(useActivityState), text_size=cellTextSize, text_color=textColorDefault)
+    table.cell(tbl, 4, rowOffset + 2, marketContext, bgcolor=colorFromActivityState(useActivityState), text_size=cellTextSize, text_color=textColorDefault)
+
+// Weights and Overall Score
+rowOffset := rowOffset + (detailedDashboard ? 2 : 1)
+weightsTooltip = useActivityState == "High" ? "High market activity detected: Trend Strength and Momentum weights increased." :
+                 useActivityState == "Low" ? "Low market activity detected: Price Action weight increased." :
+                 "Balanced market activity: Using base weights."
+table.cell(tbl, 0, rowOffset + 1, "CATEGORY WEIGHTS", bgcolor=theme == "Dark" ? color.new(#4A4A4A, 80) : color.new(#D3D3D3, 80), text_size=headerTextSize, tooltip=weightsTooltip, text_color=textColorDefault)
+table.cell(tbl, 1, rowOffset + 1, "Trend: " + str.tostring(trendWeight * 100, "#.##") + "%", bgcolor=color.new(#98FB98, 80), text_size=cellTextSize, text_halign=text.align_center, text_color=textColorDefault)
+table.cell(tbl, 2, rowOffset + 1, "Momentum: " + str.tostring(momentumWeight * 100, "#.##") + "%", bgcolor=color.new(#FFD700, 80), text_size=cellTextSize, text_halign=text.align_center, text_color=textColorDefault)
+if detailedDashboard
+    table.cell(tbl, 3, rowOffset + 1, "Price Action: " + str.tostring(priceActionWeight * 100, "#.##") + "%", bgcolor=color.new(#FFA07A, 80), text_size=cellTextSize, text_halign=text.align_center, text_color=textColorDefault)
+    table.cell(tbl, 4, rowOffset + 1, weightImpact, bgcolor=colorFromDominantCategory(weightImpact), text_size=cellTextSize, tooltip="The category with the most influence on the overall score.", text_color=textColorDefault)
+
+rowOffset := rowOffset + 1
+recommendation = finalZone == "BULLISH" and netScoreSmoothed > 5 ? "Consider buying: Strong bullish signal." :
+                 finalZone == "BEARISH" and netScoreSmoothed < -5 ? "Consider selling: Strong bearish signal." :
+                 "Hold or monitor: Mixed or neutral signal."
+overallTooltip = "Overall market zone score based on weighted categories. Recommendation: " + recommendation
+table.cell(tbl, 0, rowOffset + 1, "OVERALL SCORE: " + str.tostring(math.round(netScoreSmoothed, 2)), bgcolor=overallBgColor, text_size=headerTextSize, tooltip=overallTooltip, text_color=textColorDefault)
+table.cell(tbl, 1, rowOffset + 1, detailedDashboard ? "BULL: " + str.tostring(posCount) : "Bull/Bear: " + str.tostring(posCount) + "/" + str.tostring(negCount), bgcolor=overallBgColor, text_size=cellTextSize, text_color=textColorDefault)
+if detailedDashboard
+    table.cell(tbl, 2, rowOffset + 1, "BEAR: " + str.tostring(negCount), bgcolor=overallBgColor, text_size=cellTextSize, text_color=textColorDefault)
+    table.cell(tbl, 3, rowOffset + 1, "Zone:", bgcolor=overallBgColor, text_size=cellTextSize, text_halign=text.align_center, text_color=textColorDefault)
+    table.cell(tbl, 4, rowOffset + 1, regimeWithIcon(finalZone), text_color=textColorFromZone(finalZone), bgcolor=colorFromZone(finalZone), text_size=cellTextSize, text_halign=text.align_center)
+else
+    table.cell(tbl, 2, rowOffset + 1, regimeWithIcon(finalZone), text_color=textColorFromZone(finalZone), bgcolor=colorFromZone(finalZone), text_size=cellTextSize, text_halign=text.align_center)
+
+// —————————————————————————————
+// Oscillator Setup
+// —————————————————————————————
+zoneLineColor = finalZone == "BULLISH" ? color.new(#2ECC71, 0) : finalZone == "BEARISH" ? color.new(#E74C3C, 0) : color.new(#95A5A6, 0)
+plot(netScoreSmoothed, title="Net Score", color=zoneLineColor, linewidth=2)
+
+hline(2, "Bullish Threshold", color=color.new(#2ECC71, 40), linewidth=2)
+hline(-2, "Bearish Threshold", color=color.new(#E74C3C, 40), linewidth=2)
+hline(0, "Zero Line", color=color.new(#95A5A6, 40))
+
+oscBullishColor = color.new(#A9DFBF, 40)
+oscBearishColor = color.new(#F5B7B1, 40)
+oscSidewaysColor = color.new(#D5D8DC, 80)
+bgcolor(finalZone == "BULLISH" ? oscBullishColor : finalZone == "BEARISH" ? oscBearishColor : oscSidewaysColor, title="Zone Background")
