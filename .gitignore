@@ -93,5 +93,9 @@ backup/
 *.xlsx
 *.xls
 
+# Pickle файлы (сериализованные данные)
+*.pkl
+*.pickle
+
 # Pine Script скомпилированные файлы
 *.pinec

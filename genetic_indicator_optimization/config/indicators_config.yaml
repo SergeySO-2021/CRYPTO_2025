@@ -1,0 +1,299 @@
+# Конфигурация индикаторов для генетической оптимизации
+# Диапазоны параметров и ограничения
+
+indicators:
+  # Трендовые индикаторы
+  rsi:
+    enabled: true
+    parameters:
+      period:
+        type: int
+        min: 10  # Скорректировано для крипто (было 8)
+        max: 25  # Скорректировано для крипто (было 30)
+        step: 1
+      overbought:
+        type: int
+        min: 60
+        max: 90
+        step: 1
+      oversold:
+        type: int
+        min: 10
+        max: 40
+        step: 1
+    risk_management:
+      stop_loss:
+        min: 0.008  # 0.8% - расширено для крипто (было 0.5%)
+        max: 0.08   # 8% - расширено для крипто (было 5%)
+        step: 0.001
+      take_profit:
+        min: 0.015  # 1.5% - расширено для крипто (было 1%)
+        max: 0.15   # 15% - расширено для крипто (было 10%)
+        step: 0.001
+      min_ratio: 1.2  # Минимальное соотношение reward/risk (было 1.5, расширено до 1.2-3.0)
+      max_ratio: 3.0  # Максимальное соотношение reward/risk (новый параметр)
+
+  macd:
+    enabled: true
+    parameters:
+      fast_period:
+        type: int
+        min: 8   # Скорректировано для крипто (было 5)
+        max: 20  # Скорректировано для крипто (было 30)
+        step: 1
+      slow_period:
+        type: int
+        min: 15
+        max: 70
+        step: 1
+      signal_period:
+        type: int
+        min: 5
+        max: 30
+        step: 1
+    risk_management:
+      stop_loss:
+        min: 0.005
+        max: 0.05
+        step: 0.001
+      take_profit:
+        min: 0.01
+        max: 0.1
+        step: 0.001
+      min_ratio: 1.5
+
+  bollinger_bands:
+    enabled: true
+    parameters:
+      period:
+        type: int
+        min: 12  # Скорректировано для крипто (было 15)
+        max: 25  # Скорректировано для крипто (было 40)
+        step: 1
+      std_dev:
+        type: float
+        min: 1.5
+        max: 4.0
+        step: 0.1
+    risk_management:
+      stop_loss:
+        min: 0.005
+        max: 0.05
+        step: 0.001
+      take_profit:
+        min: 0.01
+        max: 0.1
+        step: 0.001
+      min_ratio: 1.5
+
+  ema_cross:
+    enabled: true
+    parameters:
+      fast_period:
+        type: int
+        min: 5
+        max: 32
+        step: 1
+      slow_period:
+        type: int
+        min: 15
+        max: 70
+        step: 1
+    risk_management:
+      stop_loss:
+        min: 0.005
+        max: 0.05
+        step: 0.001
+      take_profit:
+        min: 0.01
+        max: 0.1
+        step: 0.001
+      min_ratio: 1.5
+
+  supertrend:
+    enabled: true
+    parameters:
+      atr_period:
+        type: int
+        min: 5
+        max: 30
+        step: 1
+      atr_multiplier:
+        type: float
+        min: 1.5
+        max: 6.0
+        step: 0.1
+    risk_management:
+      stop_loss:
+        min: 0.005
+        max: 0.05
+        step: 0.001
+      take_profit:
+        min: 0.01
+        max: 0.1
+        step: 0.001
+      min_ratio: 1.5
+
+  # Объемные индикаторы
+  vwap:
+    enabled: true
+    parameters:
+      period:
+        type: int
+        min: 5
+        max: 100
+        step: 1
+    risk_management:
+      stop_loss:
+        min: 0.005
+        max: 0.05
+        step: 0.001
+      take_profit:
+        min: 0.01
+        max: 0.1
+        step: 0.001
+      min_ratio: 1.5
+
+  chaikin_money_flow:
+    enabled: true
+    parameters:
+      period:
+        type: int
+        min: 5
+        max: 100
+        step: 1
+    risk_management:
+      stop_loss:
+        min: 0.005
+        max: 0.05
+        step: 0.001
+      take_profit:
+        min: 0.01
+        max: 0.1
+        step: 0.001
+      min_ratio: 1.5
+
+  # Специальные индикаторы
+  atr:
+    enabled: true
+    parameters:
+      period:
+        type: int
+        min: 8   # Скорректировано для крипто (было 10)
+        max: 20  # Скорректировано для крипто (было 30)
+        step: 1
+    # Динамические стоп-лоссы на основе ATR (рекомендация DeepSeek)
+    atr_stop:
+      enabled: true  # Оптимизировать включение/выключение
+      atr_multiplier:
+        min: 1.0
+        max: 3.0
+        step: 0.1
+    risk_management:
+      stop_loss:
+        min: 0.005
+        max: 0.05
+        step: 0.001
+      take_profit:
+        min: 0.01
+        max: 0.1
+        step: 0.001
+      min_ratio: 1.5
+
+  stochastic:
+    enabled: true
+    parameters:
+      k_period:
+        type: int
+        min: 10
+        max: 30
+        step: 1
+      d_period:
+        type: int
+        min: 3
+        max: 15
+        step: 1
+    risk_management:
+      stop_loss:
+        min: 0.005
+        max: 0.05
+        step: 0.001
+      take_profit:
+        min: 0.01
+        max: 0.1
+        step: 0.001
+      min_ratio: 1.5
+
+# Общие параметры стратегии
+strategy:
+  max_positions: 1  # Максимум одновременных позиций
+  position_size: 1.0  # Размер позиции (1.0 = 100% капитала)
+  use_order_book: false  # Использовать ли order book индикаторы
+  order_book_weight: 0.3  # Вес order book в решении (если используется)
+  
+  # Гибридный подход к риск-менеджменту (рекомендация DeepSeek)
+  global_risk:
+    base_stoploss:
+      min: 0.005
+      max: 0.03
+      step: 0.001
+    base_takeprofit:
+      min: 0.01
+      max: 0.08
+      step: 0.001
+  
+  # Модификаторы риска для каждого индикатора
+  risk_multipliers:
+    min: 0.5
+    max: 2.0
+    step: 0.1
+  
+  # Взвешенное голосование индикаторов (рекомендация DeepSeek)
+  signal_combination:
+    method: weighted_voting  # weighted, voting, consensus
+    buy_threshold:
+      min: 0.1
+      max: 0.5
+      step: 0.05
+    sell_threshold:
+      min: -0.5
+      max: -0.1
+      step: 0.05
+  
+  # Trailing Stop (рекомендация DeepSeek)
+  trailing_stop:
+    enabled: false  # Оптимизировать включение/выключение
+    activation_pct:
+      min: 0.01
+      max: 0.05
+      step: 0.001
+    trailing_pct:
+      min: 0.005
+      max: 0.02
+      step: 0.001
+  
+  # Time-based фильтры (рекомендация DeepSeek)
+  trading_hours:
+    asian_session: false    # 00:00-08:00 UTC
+    european_session: false  # 08:00-16:00 UTC
+    us_session: false       # 16:00-24:00 UTC
+  
+  # Order Book веса (рекомендация DeepSeek - фокус на 3% и 5%)
+  order_book_weights:
+    weight_depth3:
+      min: 0.1
+      max: 0.6
+      step: 0.05
+    weight_depth5:
+      min: 0.1
+      max: 0.5
+      step: 0.05
+    weight_depth8:
+      min: 0.05
+      max: 0.3
+      step: 0.05
+    weight_depth60:
+      min: 0.01
+      max: 0.2
+      step: 0.05
+

@@ -1,0 +1,74 @@
+# Конфигурация генетического алгоритма
+
+genetic_algorithm:
+  # Параметры популяции
+  population_size: 100  # Рекомендация DeepSeek: 100-150 для 50+ параметров
+  max_generations: 100
+  
+  # Параметры операторов (фиксированные первые 20 поколений)
+  crossover_rate: 0.75  # Рекомендация DeepSeek: 0.75 для первых 20 поколений
+  mutation_rate: 0.15   # Рекомендация DeepSeek: 0.15 для первых 20 поколений
+  elite_size: 5
+  
+  # Параметры селекции
+  selection_method: tournament  # tournament или roulette
+  tournament_size: 3
+  
+  # Критерии остановки
+  stagnation_limit: 20  # Поколений без улучшения
+  target_fitness: 200.0  # Целевая приспособленность
+  
+  # Адаптивные параметры (активируются после fixed_generations)
+  adaptive_mutation: true  # Адаптивная мутация при застое
+  adaptive_crossover: true  # Адаптивный кроссовер (включен по рекомендации)
+  fixed_generations: 20  # Первые 20 поколений с фиксированными параметрами
+  adaptive_mutation_max: 0.25  # Максимальная мутация при низкой diversity
+  adaptive_crossover_max: 0.85  # Максимальный кроссовер при stagnation
+  
+  # Параллелизация
+  use_parallel: true
+  n_jobs: 4  # Количество процессов
+
+# Параметры функции приспособленности
+fitness:
+  # Веса метрик (обновлено по рекомендации DeepSeek)
+  weights:
+    pnl: 0.35         # Снижен с 0.5 (было 50%, стало 35%)
+    sharpe_ratio: 0.25 # Увеличен с 0.2 (было 20%, стало 25%)
+    max_drawdown: 0.20 # Увеличен с 0.15 (было 15%, стало 20%)
+    win_rate: 0.10     # Без изменений (10%)
+    profit_factor: 0.10 # Увеличен с 0.05 (было 5%, стало 10%)
+  
+  # Нормализация
+  normalization_method: rank_based  # Рекомендация DeepSeek: rank-based вместо absolute
+  
+  # Бонусы
+  bonuses:
+    sharpe_above_1: 20
+    sharpe_above_2: 30
+    drawdown_below_20: 15
+    drawdown_below_10: 25
+    win_rate_above_50: 10
+    profit_factor_above_2: 15
+  
+  # Штрафы (мультипликативные по рекомендации DeepSeek)
+  penalties:
+    trades_below_10: 0.5   # Минимальное количество сделок (обновлено)
+    trades_below_20: 0.7   # Штраф за мало сделок
+    drawdown_above_40: 0.5  # Штраф за просадку > 40% (обновлено)
+    drawdown_above_50: 0.3  # Сильный штраф за просадку > 50%
+    win_rate_below_30: 0.7  # Штраф за низкий win rate
+    profit_factor_below_1: 0.7  # Штраф за убыточную стратегию
+    sharpe_below_0: 0.3     # Штраф за отрицательный Sharpe (новый)
+
+# Параметры бэктестинга
+backtest:
+  initial_capital: 10000
+  commission: 0.001  # 0.1% комиссия
+  slippage: 0.0005   # 0.05% проскальзывание
+  
+  # Разделение данных
+  train_split: 0.7   # 70% для обучения
+  val_split: 0.15    # 15% для валидации
+  test_split: 0.15   # 15% для тестирования
+
