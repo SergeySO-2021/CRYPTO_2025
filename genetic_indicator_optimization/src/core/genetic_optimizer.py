@@ -14,8 +14,15 @@ import math
 import random
 from dataclasses import dataclass, field
 from typing import Dict, Any, List, Tuple, Optional
+from functools import partial
 
 import yaml
+
+try:
+    from multiprocessing import Pool, cpu_count
+    MULTIPROCESSING_AVAILABLE = True
+except ImportError:
+    MULTIPROCESSING_AVAILABLE = False
 
 from analysis import IndicatorPipeline
 from data_loader import DataLoader
@@ -55,6 +62,20 @@ class GeneticOptimizer:
         self.mutation_rate = self.ga_config["genetic_algorithm"]["mutation_rate"]
         self.elite_size = self.ga_config["genetic_algorithm"]["elite_size"]
         self.tournament_size = self.ga_config["genetic_algorithm"]["tournament_size"]
+        
+        # Параллелизация
+        ga_params = self.ga_config["genetic_algorithm"]
+        self.use_parallel = ga_params.get("use_parallel", False) and MULTIPROCESSING_AVAILABLE
+        self.n_jobs = ga_params.get("n_jobs", min(4, cpu_count() if MULTIPROCESSING_AVAILABLE else 1))
+        
+        # Early stopping
+        self.stagnation_limit = ga_params.get("stagnation_limit", None)
+        self.target_fitness = ga_params.get("target_fitness", None)
+        
+        # Адаптивная мутация
+        self.adaptive_mutation = ga_params.get("adaptive_mutation", False)
+        self.adaptive_mutation_max = ga_params.get("adaptive_mutation_max", 0.25)
+        self.fixed_generations = ga_params.get("fixed_generations", 0)
 
         loader = DataLoader(data_path=data_path)
         self.raw_data = loader.load_data()
@@ -74,23 +95,57 @@ class GeneticOptimizer:
     def run(self) -> Individual:
         population = [Individual(genes=self._random_genes()) for _ in range(self.population_size)]
         best_individual: Optional[Individual] = None
+        best_fitness = -math.inf
+        stagnation_count = 0
+
+        if self.use_parallel:
+            print(f"[GA] Using parallel evaluation with {self.n_jobs} processes")
 
         for generation in range(self.max_generations):
-            evaluated_population = [self._evaluate(ind) for ind in population]
+            # Параллельная или последовательная оценка
+            if self.use_parallel:
+                # Для multiprocessing нужна глобальная функция, используем обходной путь
+                evaluated_population = self._evaluate_population_parallel(population)
+            else:
+                evaluated_population = [self._evaluate(ind) for ind in population]
+            
             evaluated_population.sort(key=lambda ind: ind.fitness or -math.inf, reverse=True)
 
             current_best = evaluated_population[0]
-            if best_individual is None or (current_best.fitness or -math.inf) > (best_individual.fitness or -math.inf):
+            current_fitness = current_best.fitness or -math.inf
+            
+            # Обновляем лучшую особь
+            if current_fitness > best_fitness:
+                best_fitness = current_fitness
                 best_individual = copy.deepcopy(current_best)
+                stagnation_count = 0
+            else:
+                stagnation_count += 1
 
+            # Логирование прогресса
+            avg_fitness = sum((ind.fitness or -math.inf) for ind in evaluated_population) / len(evaluated_population)
             print(
                 f"[GA] Generation {generation+1}/{self.max_generations} "
-                f"best fitness={current_best.fitness:.2f} genes={current_best.genes}"
+                f"best={current_fitness:.2f} avg={avg_fitness:.2f} "
+                f"stagnation={stagnation_count}/{self.stagnation_limit or 'N/A'}"
             )
+
+            # Early stopping по target fitness
+            if self.target_fitness and current_fitness >= self.target_fitness:
+                print(f"[GA] Early stopping: target fitness {self.target_fitness} reached!")
+                break
+
+            # Early stopping по stagnation
+            if self.stagnation_limit and stagnation_count >= self.stagnation_limit:
+                print(f"[GA] Early stopping: no improvement for {stagnation_count} generations")
+                break
 
             if generation + 1 == self.max_generations:
                 break
 
+            # Адаптивная мутация
+            current_mutation_rate = self._get_adaptive_mutation_rate(generation, stagnation_count)
+            
             next_population = evaluated_population[: self.elite_size]
             while len(next_population) < self.population_size:
                 parent_a = self._tournament_select(evaluated_population)
@@ -101,7 +156,7 @@ class GeneticOptimizer:
                 else:
                     child_genes = copy.deepcopy(parent_a.genes)
 
-                child_genes = self._mutate(child_genes)
+                child_genes = self._mutate(child_genes, mutation_rate=current_mutation_rate)
                 next_population.append(Individual(genes=child_genes))
 
             population = next_population
@@ -118,12 +173,36 @@ class GeneticOptimizer:
             genes[name] = self._random_value(definition)
         return genes
 
-    def _mutate(self, genes: Dict[str, Any]) -> Dict[str, Any]:
+    def _mutate(self, genes: Dict[str, Any], mutation_rate: Optional[float] = None) -> Dict[str, Any]:
         mutated = copy.deepcopy(genes)
+        rate = mutation_rate if mutation_rate is not None else self.mutation_rate
         for name, definition in self.search_space.items():
-            if random.random() <= self.mutation_rate:
+            if random.random() <= rate:
                 mutated[name] = self._mutated_value(mutated[name], definition)
         return mutated
+
+    def _get_adaptive_mutation_rate(self, generation: int, stagnation_count: int) -> float:
+        """Вычисляет адаптивную мутацию на основе поколения и застоя."""
+        if not self.adaptive_mutation:
+            return self.mutation_rate
+        
+        base_rate = self.mutation_rate
+        
+        # В фиксированных поколениях используем базовую мутацию
+        if generation < self.fixed_generations:
+            return base_rate
+        
+        # Увеличиваем мутацию при застое
+        if stagnation_count > 5:
+            adaptive_rate = base_rate * (1 + stagnation_count * 0.05)
+            return min(self.adaptive_mutation_max, adaptive_rate)
+        
+        # Увеличиваем мутацию в конце эволюции
+        progress = generation / self.max_generations
+        if progress > 0.7:
+            return min(self.adaptive_mutation_max, base_rate * 1.5)
+        
+        return base_rate
 
     def _crossover(self, genes_a: Dict[str, Any], genes_b: Dict[str, Any]) -> Dict[str, Any]:
         child = {}
@@ -135,6 +214,30 @@ class GeneticOptimizer:
         contenders = random.sample(population, k=min(self.tournament_size, len(population)))
         contenders.sort(key=lambda ind: ind.fitness or -math.inf, reverse=True)
         return contenders[0]
+
+    def _evaluate_population_parallel(self, population: List[Individual]) -> List[Individual]:
+        """
+        Параллельная оценка популяции.
+        ВНИМАНИЕ: Из-за ограничений multiprocessing с методами классов,
+        используется последовательная оценка с предупреждением.
+        Для реальной параллелизации требуется рефакторинг или использование pathos.
+        """
+        # TODO: Реализовать реальную параллелизацию через pathos или рефакторинг
+        # Пока используем последовательную оценку
+        print("[WARN] Parallel evaluation not fully implemented, using sequential evaluation")
+        return [self._evaluate(ind) for ind in population]
+        
+        # Попытка использовать multiprocessing (не работает с методами классов):
+        # if MULTIPROCESSING_AVAILABLE:
+        #     try:
+        #         with Pool(processes=self.n_jobs) as pool:
+        #             # Проблема: методы классов не могут быть pickled
+        #             # Нужен рефакторинг или использование pathos
+        #             evaluated = pool.map(self._evaluate, population)
+        #             return evaluated
+        #     except Exception as e:
+        #         print(f"[WARN] Parallel evaluation failed: {e}, using sequential")
+        # return [self._evaluate(ind) for ind in population]
 
     # ---------------- Evaluation ---------------- #
 
