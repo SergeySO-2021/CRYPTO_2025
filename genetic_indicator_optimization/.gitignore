@@ -37,6 +37,7 @@ results/best_params/*.json
 results/backtest_results/*.csv
 results/visualizations/*.png
 results/visualizations/*.html
+results/*.json
 
 # IDE
 .vscode/

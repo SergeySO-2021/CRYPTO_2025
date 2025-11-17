@@ -72,3 +72,34 @@ backtest:
   val_split: 0.15    # 15% для валидации
   test_split: 0.15   # 15% для тестирования
 
+# Пространство поиска параметров (MVP)
+search_space:
+  rsi_period:
+    type: int
+    min: 10
+    max: 25
+  stop_loss_pct:
+    type: float
+    min: 0.005
+    max: 0.02
+  take_profit_pct:
+    type: float
+    min: 0.01
+    max: 0.05
+  atr_period:
+    type: int
+    min: 8
+    max: 28
+  atr_stop_multiplier:
+    type: float
+    min: 1.0
+    max: 3.0
+  atr_trailing_multiplier:
+    type: float
+    min: 0.5
+    max: 2.0
+  wobi_weight:
+    type: float
+    min: 0.1
+    max: 0.5
+

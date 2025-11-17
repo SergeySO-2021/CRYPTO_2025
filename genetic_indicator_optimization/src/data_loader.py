@@ -5,7 +5,7 @@
 import pandas as pd
 import numpy as np
 from pathlib import Path
-from typing import Tuple, Dict
+from typing import Tuple, Dict, List, Optional
 import yaml
 
 
@@ -33,6 +33,7 @@ class DataLoader:
         self.train_data = None
         self.val_data = None
         self.test_data = None
+        self.column_groups: Dict[str, List[str]] = {}
         
     def load_data(self) -> pd.DataFrame:
         """
@@ -41,7 +42,7 @@ class DataLoader:
         Returns:
             pd.DataFrame: Загруженные данные
         """
-        print(f"📁 Загружаем данные из {self.data_path}...")
+        print(f"[INFO] Loading data from {self.data_path} ...")
         
         if not self.data_path.exists():
             raise FileNotFoundError(f"Файл данных не найден: {self.data_path}")
@@ -57,8 +58,10 @@ class DataLoader:
             df['timestamp'] = pd.to_datetime(df['timestamp'])
             df.set_index('timestamp', inplace=True)
         
-        # Сортировка по времени
+        # Очистка и сортировка
         df.sort_index(inplace=True)
+        df = df[~df.index.duplicated(keep='last')]
+        df.columns = df.columns.str.strip()
         
         # Проверка наличия необходимых колонок
         required_cols = ['open', 'high', 'low', 'close', 'volume']
@@ -70,15 +73,18 @@ class DataLoader:
         # Проверка на пропуски
         missing_count = df[required_cols].isnull().sum().sum()
         if missing_count > 0:
-            print(f"⚠️  Обнаружено {missing_count} пропусков в данных")
-            print("   Заполняем пропуски...")
+            print(f"[WARN] Found {missing_count} missing values. Applying forward/backward fill ...")
             df[required_cols] = df[required_cols].fillna(method='ffill').fillna(method='bfill')
         
+        # Детектируем группы колонок (ценовые, flow, order book)
+        self.column_groups = self._detect_column_groups(df)
+
         self.data = df
         
-        print(f"✅ Загружено {len(df)} записей")
-        print(f"📅 Период: {df.index.min()} - {df.index.max()}")
-        print(f"📊 Колонки: {list(df.columns)}")
+        print(f"[OK] Loaded {len(df)} rows")
+        print(f"[INFO] Period: {df.index.min()} - {df.index.max()}")
+        print(f"[INFO] Columns: {list(df.columns)}")
+        print(f"[INFO] Available groups: {', '.join([f'{k}({len(v)})' for k, v in self.column_groups.items() if v])}")
         
         return df
     
@@ -111,15 +117,64 @@ class DataLoader:
         self.val_data = self.data.iloc[train_end:val_end].copy()
         self.test_data = self.data.iloc[val_end:].copy()
         
-        print(f"\n📊 Разделение данных:")
-        print(f"   Train:  {len(self.train_data)} записей ({len(self.train_data)/total_len*100:.1f}%)")
-        print(f"            Период: {self.train_data.index.min()} - {self.train_data.index.max()}")
-        print(f"   Val:    {len(self.val_data)} записей ({len(self.val_data)/total_len*100:.1f}%)")
-        print(f"            Период: {self.val_data.index.min()} - {self.val_data.index.max()}")
-        print(f"   Test:   {len(self.test_data)} записей ({len(self.test_data)/total_len*100:.1f}%)")
-        print(f"            Период: {self.test_data.index.min()} - {self.test_data.index.max()}")
+        print(f"\n[INFO] Temporal split:")
+        print(f"   Train:  {len(self.train_data)} rows ({len(self.train_data)/total_len*100:.1f}%)")
+        print(f"           Period: {self.train_data.index.min()} - {self.train_data.index.max()}")
+        print(f"   Val:    {len(self.val_data)} rows ({len(self.val_data)/total_len*100:.1f}%)")
+        print(f"           Period: {self.val_data.index.min()} - {self.val_data.index.max()}")
+        print(f"   Test:   {len(self.test_data)} rows ({len(self.test_data)/total_len*100:.1f}%)")
+        print(f"           Period: {self.test_data.index.min()} - {self.test_data.index.max()}")
         
         return self.train_data, self.val_data, self.test_data
+
+    def get_column_groups(self) -> Dict[str, List[str]]:
+        """
+        Возвращает словарь с группами колонок (цены, flow, order book и т.д.)
+        """
+        if not self.column_groups and self.data is not None:
+            self.column_groups = self._detect_column_groups(self.data)
+        return self.column_groups
+
+    def get_features(self, groups: Optional[List[str]] = None) -> pd.DataFrame:
+        """
+        Возвращает датафрейм, состоящий только из указанных групп колонок
+        Args:
+            groups: список групп (например, ['price', 'order_book_ratios'])
+        """
+        if self.data is None:
+            raise ValueError("Данные не загружены. Сначала вызовите load_data()")
+
+        if not groups:
+            return self.data.copy()
+
+        available_groups = self.get_column_groups()
+        selected_columns = []
+
+        for group in groups:
+            if group not in available_groups:
+                raise ValueError(f"Группа {group} недоступна. Доступные: {list(available_groups.keys())}")
+            selected_columns.extend(available_groups[group])
+
+        # Удаляем дубликаты колонок (если одна колонка входит в несколько групп)
+        selected_columns = list(dict.fromkeys(selected_columns))
+        return self.data[selected_columns].copy()
+
+    def _detect_column_groups(self, df: pd.DataFrame) -> Dict[str, List[str]]:
+        """
+        Определяет группы колонок в данных
+        """
+        column_groups = {
+            'price': [col for col in ['open', 'high', 'low', 'close', 'volume'] if col in df.columns],
+            'flow': [col for col in df.columns if col.startswith('flow_')],
+            'order_book_levels': [col for col in df.columns if col.startswith(('ask', 'bid'))],
+            'order_book_diff': [col for col in df.columns if col.startswith('diff_')],
+            'order_book_depth': [
+                col for col in df.columns
+                if col.startswith('d') and len(col) > 1 and col[1].isdigit()
+            ],
+            'order_book_ratios': [col for col in df.columns if col.startswith('ratio')],
+        }
+        return column_groups
     
     def get_data_info(self) -> Dict:
         """
@@ -154,20 +209,20 @@ class DataLoader:
         info = self.get_data_info()
         
         print("\n" + "="*60)
-        print("📊 ИНФОРМАЦИЯ О ДАННЫХ")
+        print("DATA SUMMARY")
         print("="*60)
         print(f"Всего записей: {info.get('total_records', 'N/A')}")
         print(f"Период: {info.get('period_start', 'N/A')} - {info.get('period_end', 'N/A')}")
         print(f"Колонок: {len(info.get('columns', []))}")
         print(f"Использование памяти: {info.get('memory_usage_mb', 0):.2f} MB")
         
-        print("\n📋 Колонки:")
+        print("\nColumns:")
         for col in info.get('columns', []):
             missing = info.get('missing_values', {}).get(col, 0)
             dtype = info.get('data_types', {}).get(col, 'unknown')
             print(f"   - {col}: {dtype} (пропусков: {missing})")
         
-        print("\n📈 Статистика по основным колонкам:")
+        print("\nMain column statistics:")
         stats = info.get('statistics', {})
         for col in ['open', 'high', 'low', 'close', 'volume']:
             if col in stats:

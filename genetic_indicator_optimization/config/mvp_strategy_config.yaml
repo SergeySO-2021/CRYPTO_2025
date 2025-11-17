@@ -1,0 +1,48 @@
+signals:
+  rsi:
+    column: rsi_14
+    buy_below: 35.0
+    sell_above: 65.0
+    weight: 1.0
+
+  macd:
+    line: macd_line
+    signal: macd_signal
+    deadband: 0.0
+    weight: 1.0
+
+  bollinger:
+    upper: boll_upper
+    lower: boll_lower
+    weight: 1.0
+
+  wobi:
+    column: wobi_zscore
+    buy_below: -0.5
+    sell_above: 0.5
+    weight: 1.0
+
+combination:
+  entry_threshold: 0.5
+  exit_threshold: 0.1
+
+risk:
+  initial_capital: 10000.0
+  position_size_pct: 1.0
+  stop_loss_pct: 0.01
+  take_profit_pct: 0.02
+  max_holding_bars: 96
+  maker_fee_pct: 0.0002
+  taker_fee_pct: 0.0007
+  emergency_exit_reasons:
+    - stop_loss
+    - time_stop
+  atr:
+    enabled: true
+    period: 14
+    stop_multiplier: 1.5
+    trailing_multiplier: 0.8
+  turnover:
+    cooldown_bars: 4
+    max_trades_per_day: 120
+

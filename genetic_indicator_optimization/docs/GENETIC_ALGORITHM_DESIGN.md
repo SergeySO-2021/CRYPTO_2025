@@ -67,74 +67,55 @@
 
 ---
 
+### 1.3. Что уже реализовано (MVP, 17 ноября)
+
+- **DataLoader → IndicatorPipeline → MVPStrategy → SimpleBacktester** — одна связанная цепочка, которую переиспользует как CLI (`run_mvp_backtest.py`), так и ГА.
+- **Комиссии и риск**: в `simple_backtester.py` заложены maker/taker, ATR‑стоп/трейлинг, лимиты на количество сделок и «cooldown» между позициями.
+- **Генетический оптимизатор** (`src/core/genetic_optimizer.py`) читает два YAML-файла:
+  - `config/mvp_strategy_config.yaml` — базовая стратегия и риск
+  - `config/ga_config.yaml` — параметры ГА и пространство поиска
+- **CLI** `scripts/run_ga_search.py` разворачивает ГА одной командой:
+
+```bash
+py -3 scripts/run_ga_search.py \
+    --population-size 40 \
+    --max-generations 50 \
+    --output results/ga_best.json
+```
+
+Промежуточные результаты (например, быстрый прогон 6×3) сохраняются в `results/ga_best*.json` вместе с метриками train/val/test/full.
+
+---
+
 ## 🧬 2. ПРЕДСТАВЛЕНИЕ ОСОБИ
 
 ### 2.1. Структура хромосомы
 
+Фактическая реализация (`src/core/genetic_optimizer.py`):
+
 ```python
+@dataclass
 class Individual:
-    """
-    Представление особи в генетическом алгоритме
-    """
-    def __init__(self):
-        self.indicators = {
-            'rsi': {
-                'period': 14,
-                'overbought': 70,
-                'oversold': 30,
-                'stop_loss': 0.02,      # 2% от цены входа
-                'take_profit': 0.04,    # 4% от цены входа
-                'enabled': True         # Использовать ли индикатор
-            },
-            'macd': {
-                'fast_period': 12,
-                'slow_period': 26,
-                'signal_period': 9,
-                'stop_loss': 0.015,
-                'take_profit': 0.035,
-                'enabled': True
-            },
-            # ... остальные индикаторы
-        }
-        
-        self.strategy_params = {
-            'max_positions': 1,         # Максимум одновременных позиций
-            'position_size': 1.0,         # Размер позиции (1.0 = 100%)
-            'use_order_book': False,      # Использовать ли order book
-            'order_book_weight': 0.3       # Вес order book в решении
-        }
-        
-        self.fitness = None              # Приспособленность
-        self.backtest_results = None     # Результаты бэктеста
+    genes: Dict[str, Any]
+    fitness: Optional[float] = None
+    metrics: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 ```
 
-### 2.2. Кодирование параметров
+Хромосома — это плоский словарь значений, соответствующий `search_space` из `config/ga_config.yaml`. Пример для текущего MVP:
 
-#### 2.2.1. Параметры индикаторов
+| Gene | Тип | Диапазон |
+| --- | --- | --- |
+| `rsi_period` | int | 10 – 25 |
+| `stop_loss_pct` | float | 0.5% – 2.0% |
+| `take_profit_pct` | float | 1.0% – 5.0% |
+| `atr_period` | int | 8 – 28 |
+| `atr_stop_multiplier` | float | 1.0 – 3.0 |
+| `atr_trailing_multiplier` | float | 0.5 – 2.0 |
+| `wobi_weight` | float | 0.1 – 0.5 |
 
-| Индикатор | Параметры | Диапазон значений |
-|-----------|-----------|-------------------|
-| RSI | period | 8-30 (целое) |
-| | overbought | 60-90 (целое) |
-| | oversold | 10-40 (целое) |
-| MACD | fast_period | 5-30 (целое) |
-| | slow_period | 15-70 (целое) |
-| | signal_period | 5-30 (целое) |
-| Bollinger Bands | period | 15-40 (целое) |
-| | std_dev | 1.5-4.0 (float, шаг 0.1) |
-| SuperTrend | atr_period | 5-30 (целое) |
-| | atr_multiplier | 1.5-6.0 (float, шаг 0.1) |
+`genetic_optimizer` на лету встраивает эти параметры в `IndicatorPipeline`, `MVPStrategy` и `SimpleBacktester`, поэтому особь не хранит громоздкие структуры по каждому индикатору (как в старой версии).
 
-#### 2.2.2. Стоп-лоссы и тейк-профиты
-
-| Параметр | Диапазон | Шаг |
-|----------|----------|-----|
-| stop_loss | 0.5% - 5% | 0.1% |
-| take_profit | 1% - 10% | 0.1% |
-
-**Ограничения:**
-- `take_profit > stop_loss * 1.5` (минимум соотношение 1.5:1)
-- `stop_loss < 5%` (максимальный риск)
+> Расширение search space (flow/OB индикаторы, веса голосования, комиссии) будет происходить через тот же YAML без изменения кода.
 
 ---
 
@@ -179,102 +160,21 @@ def initialize_population(size, indicators_config):
     return population
 ```
 
-### 3.2. Функция приспособленности
+### 3.2. Функция приспособленности (фактическая реализация)
 
-```python
-def calculate_fitness(individual, data, initial_capital=10000):
-    """
-    Расчет приспособленности особи
-    
-    Args:
-        individual: Особая для оценки
-        data: Исторические данные
-        initial_capital: Начальный капитал
-    
-    Returns:
-        float: Оценка приспособленности
-    """
-    # 1. Бэктестинг стратегии
-    backtest_results = backtest_strategy(individual, data, initial_capital)
-    
-    # 2. Основные метрики
-    total_pnl = backtest_results['total_pnl']  # Общая прибыльность
-    sharpe_ratio = backtest_results['sharpe_ratio']
-    max_drawdown = backtest_results['max_drawdown']
-    win_rate = backtest_results['win_rate']
-    profit_factor = backtest_results['profit_factor']
-    total_trades = backtest_results['total_trades']
-    
-    # 3. Нормализация метрик (гибридный подход)
-    # Первые 30% поколений: rank-based, остальные: absolute values
-    use_rank_based = (generation / max_generations) < 0.3
-    
-    if use_rank_based:
-        # Rank-based нормализация для разнообразия в начале
-        normalized_pnl = rank_normalize([ind.total_pnl for ind in population], total_pnl)
-        normalized_sharpe = rank_normalize([ind.sharpe_ratio for ind in population], sharpe_ratio)
-        normalized_drawdown = rank_normalize([ind.max_drawdown for ind in population], max_drawdown, reverse=True)
-    else:
-        # Absolute values для точности в конце
-        normalized_pnl = total_pnl * 100
-        normalized_sharpe = sharpe_ratio * 10
-        normalized_drawdown = (1 - max_drawdown) * 50
-    
-    # 4. Взвешенная функция приспособленности (эволюция по этапам)
-    # MVP: PnL 60%, Sharpe 30%, Drawdown 10%
-    # Этап 1: PnL 40%, Sharpe 25%, Drawdown 20%, Win Rate 10%, Profit Factor 5%
-    # Этап 2: PnL 35%, Sharpe 25%, Drawdown 20%, Win Rate 10%, Profit Factor 10%
-    
-    stage = determine_stage(generation, max_generations)
-    
-    if stage == 'mvp':
-        weights = {'pnl': 0.60, 'sharpe': 0.30, 'drawdown': 0.10}
-        base_score = (
-            normalized_pnl * weights['pnl'] +
-            normalized_sharpe * weights['sharpe'] +
-            normalized_drawdown * weights['drawdown']
-        )
-    elif stage == 'stage1':
-        weights = {'pnl': 0.40, 'sharpe': 0.25, 'drawdown': 0.20, 'win_rate': 0.10, 'profit_factor': 0.05}
-        base_score = (
-            normalized_pnl * weights['pnl'] +
-            normalized_sharpe * weights['sharpe'] +
-            normalized_drawdown * weights['drawdown'] +
-            win_rate * 100 * weights['win_rate'] +
-            profit_factor * 10 * weights['profit_factor']
-        )
-    else:  # stage2 или final
-        weights = {'pnl': 0.35, 'sharpe': 0.25, 'drawdown': 0.20, 'win_rate': 0.10, 'profit_factor': 0.10}
-        base_score = (
-            normalized_pnl * weights['pnl'] +
-            normalized_sharpe * weights['sharpe'] +
-            normalized_drawdown * weights['drawdown'] +
-            win_rate * 100 * weights['win_rate'] +
-            profit_factor * 10 * weights['profit_factor']
-        )
-    
-    # 5. Штрафы за плохие характеристики (мультипликативные)
-    if total_trades < 20:  # Мало сделок
-        base_score *= 0.5
-    
-    if max_drawdown > 0.5:  # Просадка > 50%
-        base_score *= 0.2  # Сильный штраф
-    
-    if win_rate < 0.3:  # Win rate < 30%
-        base_score *= 0.7
-    
-    if profit_factor < 1.0:  # Убыточная стратегия
-        base_score *= 0.3
-    
-    # 6. Финальный score
-    fitness = base_score
-    
-    # Сохраняем результаты в особи
-    individual.fitness = fitness
-    individual.backtest_results = backtest_results
-    
-    return fitness
-```
+`GeneticOptimizer._calculate_fitness` использует **валидационные** метрики и веса из `config/ga_config.yaml`:
+
+1. Для `val`‑сета вычисляются:
+   - `total_return` → умножаем на 100
+   - `sharpe_ratio` → умножаем на 10
+   - `max_drawdown` → преобразуем к `(1 - DD) * 100`
+   - `win_rate` → к 0‑100
+   - `profit_factor` → к 0‑10
+2. Веса по умолчанию (MVP): `PnL 0.35`, `Sharpe 0.25`, `DD 0.20`, `Win 0.10`, `PF 0.10`.
+3. Штрафы (мультипликативные): мало сделок, DD > 40/50%, win rate < 30%, PF < 1, отрицательный Sharpe.
+4. Бонусы (аддитивные): Sharpe > 1/2, DD < 20/10%, win rate > 50%, PF > 2.
+
+Такой подход поддерживает смену весов и штрафов редактированием YAML без изменения кода. Train/test метрики также сохраняются в `Individual.metrics`, чтобы можно было анализировать переобучение.
 
 ### 3.3. Селекция
 
@@ -368,6 +268,26 @@ def crossover(parent1, parent2, crossover_rate=0.8):
     return child
 ```
 
+---
+
+## 7. Практический пример (быстрый прогон 6×3)
+
+Команда:
+
+```bash
+py -3 scripts/run_ga_search.py --population-size 6 --max-generations 3 --output results/ga_best.json
+```
+
+- Лучшие гены: `rsi_period=25`, `stop_loss_pct=1.48%`, `take_profit_pct=3.34%`, `atr_period=16`, `atr_stop_multiplier=2.92`, `atr_trailing_multiplier=1.98`, `wobi_weight=0.45`
+- Валид. метрики: `return -1.97%`, `Sharpe -10.0`, `PF 0.83`, `23` сделок (мало данных → strong penalties)
+- Тест: `return +5.4%`, `Sharpe 33.5`, `PF 1.72`, `26` сделок
+
+Вывод: пайплайн «ГА → бэктест» полностью функционирует, но для устойчивого результата нужно:
+1. Больше поколений и популяция ≥40 (как в конфиге)
+2. Доп. штрафы за turnover и просадки
+3. Расширение search space (flow/OB индикаторы, веса голосования, глобальные настройки риска)
+
+Все числовые результаты остаются в `results/ga_best*.json`, что позволяет фиксировать артефакты каждого запуска.
 ### 3.5. Мутация
 
 ```python
