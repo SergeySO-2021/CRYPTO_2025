@@ -19,10 +19,17 @@ from functools import partial
 import yaml
 
 try:
-    from multiprocessing import Pool, cpu_count
+    from multiprocessing import cpu_count
     MULTIPROCESSING_AVAILABLE = True
 except ImportError:
     MULTIPROCESSING_AVAILABLE = False
+    cpu_count = lambda: 1
+
+try:
+    from pathos.multiprocessing import ProcessingPool
+    PATHOS_AVAILABLE = True
+except ImportError:
+    PATHOS_AVAILABLE = False
 
 from analysis import IndicatorPipeline
 from data_loader import DataLoader
@@ -65,7 +72,9 @@ class GeneticOptimizer:
         
         # Параллелизация
         ga_params = self.ga_config["genetic_algorithm"]
-        self.use_parallel = ga_params.get("use_parallel", False) and MULTIPROCESSING_AVAILABLE
+        self.use_parallel = ga_params.get("use_parallel", False) and PATHOS_AVAILABLE
+        if not PATHOS_AVAILABLE and ga_params.get("use_parallel", False):
+            print("[WARN] pathos not available, parallel evaluation disabled. Install with: pip install pathos")
         self.n_jobs = ga_params.get("n_jobs", min(4, cpu_count() if MULTIPROCESSING_AVAILABLE else 1))
         
         # Early stopping
@@ -99,12 +108,11 @@ class GeneticOptimizer:
         stagnation_count = 0
 
         if self.use_parallel:
-            print(f"[GA] Using parallel evaluation with {self.n_jobs} processes")
+            print(f"[GA] Using parallel evaluation with {self.n_jobs} processes (pathos)")
 
         for generation in range(self.max_generations):
             # Параллельная или последовательная оценка
             if self.use_parallel:
-                # Для multiprocessing нужна глобальная функция, используем обходной путь
                 evaluated_population = self._evaluate_population_parallel(population)
             else:
                 evaluated_population = [self._evaluate(ind) for ind in population]
@@ -217,27 +225,21 @@ class GeneticOptimizer:
 
     def _evaluate_population_parallel(self, population: List[Individual]) -> List[Individual]:
         """
-        Параллельная оценка популяции.
-        ВНИМАНИЕ: Из-за ограничений multiprocessing с методами классов,
-        используется последовательная оценка с предупреждением.
-        Для реальной параллелизации требуется рефакторинг или использование pathos.
+        Параллельная оценка популяции с использованием pathos.
+        Pathos использует dill для сериализации, что позволяет работать с методами классов.
         """
-        # TODO: Реализовать реальную параллелизацию через pathos или рефакторинг
-        # Пока используем последовательную оценку
-        print("[WARN] Parallel evaluation not fully implemented, using sequential evaluation")
-        return [self._evaluate(ind) for ind in population]
+        if not PATHOS_AVAILABLE:
+            print("[WARN] pathos not available, using sequential evaluation")
+            return [self._evaluate(ind) for ind in population]
         
-        # Попытка использовать multiprocessing (не работает с методами классов):
-        # if MULTIPROCESSING_AVAILABLE:
-        #     try:
-        #         with Pool(processes=self.n_jobs) as pool:
-        #             # Проблема: методы классов не могут быть pickled
-        #             # Нужен рефакторинг или использование pathos
-        #             evaluated = pool.map(self._evaluate, population)
-        #             return evaluated
-        #     except Exception as e:
-        #         print(f"[WARN] Parallel evaluation failed: {e}, using sequential")
-        # return [self._evaluate(ind) for ind in population]
+        try:
+            with ProcessingPool(nodes=self.n_jobs) as pool:
+                # pathos может pickle методы классов благодаря dill
+                evaluated = pool.map(self._evaluate, population)
+                return evaluated
+        except Exception as e:
+            print(f"[WARN] Parallel evaluation failed: {e}, using sequential")
+            return [self._evaluate(ind) for ind in population]
 
     # ---------------- Evaluation ---------------- #
 
