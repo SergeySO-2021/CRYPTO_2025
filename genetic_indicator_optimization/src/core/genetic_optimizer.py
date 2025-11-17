@@ -218,8 +218,10 @@ class GeneticOptimizer:
 
     def _calculate_fitness(self, metrics: Dict[str, Dict[str, Any]]) -> float:
         val_metrics = metrics.get("val") or self._empty_metrics()
+        train_metrics = metrics.get("train") or self._empty_metrics()
         weights = self.fitness_weights
 
+        # Основной fitness на validation (борьба с переобучением)
         pnl_score = val_metrics["total_return"] * 100
         sharpe_score = val_metrics["sharpe_ratio"] * 10
         drawdown_score = (1 - val_metrics["max_drawdown"]) * 100
@@ -235,6 +237,29 @@ class GeneticOptimizer:
         )
 
         score = base_score
+        
+        # Штраф за переобучение: если train намного лучше val
+        overfitting_penalty = self._calculate_overfitting_penalty(train_metrics, val_metrics)
+        score -= overfitting_penalty
+        
+        # Штраф за нестабильность: большая разница между train и val
+        stability_penalty = self._calculate_stability_penalty(train_metrics, val_metrics)
+        score -= stability_penalty
+        
+        # Бонус за стабильность: если train и val близки
+        stability_bonus = self._calculate_stability_bonus(train_metrics, val_metrics)
+        score += stability_bonus
+        
+        # Логирование для отладки (только если есть значительные штрафы/бонусы)
+        if overfitting_penalty > 10 or stability_penalty > 10 or stability_bonus > 5:
+            print(
+                f"  [Fitness] base={base_score:.2f} "
+                f"overfit_penalty={overfitting_penalty:.2f} "
+                f"stability_penalty={stability_penalty:.2f} "
+                f"stability_bonus={stability_bonus:.2f} "
+                f"final={score:.2f}"
+            )
+        
         score *= self._apply_penalties(val_metrics)
         score += self._apply_bonuses(val_metrics)
         return score
@@ -268,6 +293,91 @@ class GeneticOptimizer:
         for key, condition in conditions.items():
             if condition and key in self.fitness_bonuses:
                 bonus += self.fitness_bonuses[key]
+        return bonus
+
+    def _calculate_overfitting_penalty(self, train_metrics: Dict[str, Any], val_metrics: Dict[str, Any]) -> float:
+        """
+        Штраф за переобучение: если train метрики намного лучше val.
+        Это указывает на то, что стратегия запомнила паттерны train, которые не работают на новых данных.
+        """
+        penalty = 0.0
+        
+        # Штраф за разницу в return (если train намного лучше val)
+        train_return = train_metrics.get("total_return", 0.0)
+        val_return = val_metrics.get("total_return", 0.0)
+        if train_return > val_return:
+            # Если train положительный, а val отрицательный - сильный штраф
+            if train_return > 0 and val_return < 0:
+                penalty += abs(train_return - val_return) * 500  # Сильный штраф
+            # Если оба положительные, но train намного лучше
+            elif train_return > val_return * 1.5:
+                penalty += (train_return - val_return) * 200
+        
+        # Штраф за разницу в Sharpe (если train намного лучше val)
+        train_sharpe = train_metrics.get("sharpe_ratio", 0.0)
+        val_sharpe = val_metrics.get("sharpe_ratio", 0.0)
+        if train_sharpe > val_sharpe:
+            # Если train положительный, а val отрицательный - сильный штраф
+            if train_sharpe > 0 and val_sharpe < 0:
+                penalty += abs(train_sharpe - val_sharpe) * 20
+            # Если оба положительные, но train намного лучше
+            elif train_sharpe > val_sharpe * 1.5:
+                penalty += (train_sharpe - val_sharpe) * 10
+        
+        return penalty
+
+    def _calculate_stability_penalty(self, train_metrics: Dict[str, Any], val_metrics: Dict[str, Any]) -> float:
+        """
+        Штраф за нестабильность: большая разница между train и val метриками.
+        Даже если обе метрики хорошие, большая разница указывает на нестабильность стратегии.
+        """
+        penalty = 0.0
+        
+        # Разница в return (абсолютная)
+        return_diff = abs(train_metrics.get("total_return", 0.0) - val_metrics.get("total_return", 0.0))
+        if return_diff > 0.10:  # Разница больше 10%
+            penalty += return_diff * 100
+        
+        # Разница в Sharpe (абсолютная)
+        sharpe_diff = abs(train_metrics.get("sharpe_ratio", 0.0) - val_metrics.get("sharpe_ratio", 0.0))
+        if sharpe_diff > 5.0:  # Разница больше 5
+            penalty += sharpe_diff * 2
+        
+        # Разница в max drawdown (абсолютная)
+        dd_diff = abs(train_metrics.get("max_drawdown", 0.0) - val_metrics.get("max_drawdown", 0.0))
+        if dd_diff > 0.15:  # Разница больше 15%
+            penalty += dd_diff * 50
+        
+        return penalty
+
+    def _calculate_stability_bonus(self, train_metrics: Dict[str, Any], val_metrics: Dict[str, Any]) -> float:
+        """
+        Бонус за стабильность: если train и val метрики близки.
+        Это указывает на то, что стратегия работает стабильно на разных данных.
+        """
+        bonus = 0.0
+        
+        # Близость return (если разница меньше 5%)
+        return_diff = abs(train_metrics.get("total_return", 0.0) - val_metrics.get("total_return", 0.0))
+        if return_diff < 0.05:
+            bonus += 10.0  # Бонус за стабильность return
+        
+        # Близость Sharpe (если разница меньше 2)
+        sharpe_diff = abs(train_metrics.get("sharpe_ratio", 0.0) - val_metrics.get("sharpe_ratio", 0.0))
+        if sharpe_diff < 2.0:
+            bonus += 5.0  # Бонус за стабильность Sharpe
+        
+        # Близость max drawdown (если разница меньше 5%)
+        dd_diff = abs(train_metrics.get("max_drawdown", 0.0) - val_metrics.get("max_drawdown", 0.0))
+        if dd_diff < 0.05:
+            bonus += 5.0  # Бонус за стабильность drawdown
+        
+        # Дополнительный бонус, если обе метрики положительные и близкие
+        train_return = train_metrics.get("total_return", 0.0)
+        val_return = val_metrics.get("total_return", 0.0)
+        if train_return > 0 and val_return > 0 and return_diff < 0.03:
+            bonus += 15.0  # Большой бонус за стабильную прибыльность
+        
         return bonus
 
     # ---------------- Value helpers ---------------- #

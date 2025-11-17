@@ -74,6 +74,7 @@ py -3 scripts/run_ga_search.py \
 - `docs/GENETIC_ALGORITHM_DESIGN.md` — актуальная архитектура ГА и search space
 - `docs/STAGE0_BASELINE_REPORT.md` — метрики MVP (с комиссиями и ATR‑стопами) + результаты боевого ГА
 - `docs/ACTION_PLAN_AFTER_GA.md` — **критично:** план исправления переобучения после боевого запуска
+- `docs/FITNESS_FUNCTION_UPDATE.md` — ✅ обновление fitness функции для борьбы с переобучением
 - `docs/PROJECT_EXPLAINED_SIMPLE.md` — объяснение проекта «на пальцах»
 - `docs/UPDATED_PLAN_CRITICAL_ANALYSIS.md` + `docs/PLAN_SUMMARY.md` — адаптированный план
 - `docs/ORDER_BOOK_INDICATORS_IMPLEMENTATION.md` — список OB‑индикаторов
