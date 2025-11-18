@@ -19,6 +19,7 @@
 - CLI:
   - `scripts/run_mvp_backtest.py` — полный отчётный прогон
   - `scripts/run_ga_search.py` — запуск ГА (параметры популяции можно переопределять)
+  - `scripts/analyze_test_trades.py` — анализ сделок/паттернов на тестовом сплите
 
 ---
 
@@ -31,7 +32,7 @@ genetic_indicator_optimization/
 │   └── ga_config.yaml             # параметры ГА + search space
 ├── docs/                          # планы, отчёты, консультации DeepSeek
 ├── notebooks/                     # исследовательские ноутбуки
-├── scripts/                       # run_mvp_backtest.py, run_ga_search.py
+├── scripts/                       # run_mvp_backtest.py, run_ga_search.py, analyze_test_trades.py
 ├── src/
 │   ├── analysis/indicator_pipeline.py
 │   ├── core/{simple_backtester.py, genetic_optimizer.py, ...}
@@ -82,6 +83,8 @@ py -3 scripts/run_ga_search.py \
 - `docs/UPDATED_PLAN_CRITICAL_ANALYSIS.md` + `docs/PLAN_SUMMARY.md` — адаптированный план
 - `docs/ORDER_BOOK_INDICATORS_IMPLEMENTATION.md` — список OB‑индикаторов
 - `docs/OSENGINE_STOP_TAKE_ANALYSIS.md` — разбор стопов/тейков OsEngine
+- `docs/RECOMMENDATIONS_ACCUMULATOR.md` — конспект всех решений/тудушек, принятых в ходе проекта
+- `docs/TECHNICAL_SPECIFICATION.md` — ТЗ на текущий этап исследования
 - `docs/deepseek_advice/…` — консультации DeepSeek
 
 ---
@@ -93,6 +96,7 @@ py -3 scripts/run_ga_search.py \
 - ✅ CLI `run_mvp_backtest.py` делает воспроизводимый отчёт
 - ✅ ГА (`run_ga_search.py`) оптимизирует `rsi_period`, `stop_loss_pct`, `take_profit_pct`, `atr_period`, `atr_stop_multiplier`, `atr_trailing_multiplier`, `wobi_weight`
 - ✅ Реализованы фильтры времени/длительности и асимметричные веса (приоритет short + отдельные пороги RSI)
+- ✅ Расширен search space: ГА подбирает `time_filter_enabled`, `time_window_start`, `time_window_length` (лучшее окно 12:00–16:00 UTC дало +4.55% на val)
 - ⏳ Расширение search space (flow/OB индикаторы, веса голосования)
 - ⏳ Walk-forward, стресс‑тесты и доработка fitness (штрафы за turnover, устойчивость)
 
