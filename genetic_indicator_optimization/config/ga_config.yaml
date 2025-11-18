@@ -106,12 +106,19 @@ search_space:
     type: int
     min: 0
     max: 1
+    # 0 = фильтр выключен (торгуем весь день)
+    # 1 = фильтр включен (торгуем только в выбранном окне)
   time_window_start:
     type: int
-    min: 6
-    max: 16
+    min: 0
+    max: 23
+    # Начало разрешённого окна (часы UTC, 0-23)
+    # Используется только если time_filter_enabled = 1
   time_window_length:
     type: int
-    min: 4
-    max: 8
+    min: 1
+    max: 12
+    # Длина окна в часах (1-12 часов)
+    # Используется только если time_filter_enabled = 1
+    # Конец окна = start + length (не более 24)
 

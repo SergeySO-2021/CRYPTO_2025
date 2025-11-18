@@ -20,6 +20,7 @@ class BacktestConfig:
     entry_threshold: float = 0.5
     exit_threshold: float = 0.1
     max_holding_bars: int = 96  # one trading day on 15m timeframe
+    min_holding_bars: int = 0  # минимальное время удержания (в барах, 2 часа = 8 баров на 15m)
     maker_fee_pct: float = 0.0002   # 2 bps
     taker_fee_pct: float = 0.0007   # 7 bps
     emergency_exit_reasons: Tuple[str, ...] = ("stop_loss", "time_stop")
@@ -43,6 +44,7 @@ class BacktestConfig:
             entry_threshold=cfg.get("entry_threshold", default.entry_threshold),
             exit_threshold=cfg.get("exit_threshold", default.exit_threshold),
             max_holding_bars=cfg.get("max_holding_bars", default.max_holding_bars),
+            min_holding_bars=cfg.get("min_holding_bars", default.min_holding_bars),
             maker_fee_pct=cfg.get("maker_fee_pct", default.maker_fee_pct),
             taker_fee_pct=cfg.get("taker_fee_pct", default.taker_fee_pct),
             emergency_exit_reasons=tuple(
@@ -125,7 +127,7 @@ class SimpleBacktester:
                 if cooldown_counter > 0:
                     continue
 
-                if combined >= self.config.entry_threshold and signal_row.get("entry_long", False):
+                if signal_row.get("entry_long", False):
                     position = "long"
                     entry_price = price
                     entry_time = timestamp
@@ -141,7 +143,7 @@ class SimpleBacktester:
                     best_price = entry_price
                     daily_trade_counts[current_day] += 1
                     holding_bars = 0
-                elif combined <= -self.config.entry_threshold and signal_row.get("entry_short", False):
+                elif signal_row.get("entry_short", False):
                     position = "short"
                     entry_price = price
                     entry_time = timestamp
@@ -173,7 +175,8 @@ class SimpleBacktester:
                     exit_reason = "stop_loss"
                 elif take_price is not None and price >= take_price:
                     exit_reason = "take_profit"
-                elif signal_row.get("exit_long", False) or combined <= -self.config.exit_threshold:
+                elif (signal_row.get("exit_long", False) or combined <= -self.config.exit_threshold) and \
+                     holding_bars >= self.config.min_holding_bars:
                     exit_reason = "signal_flip"
             else:  # short
                 if best_price is None or price < best_price:
@@ -185,7 +188,8 @@ class SimpleBacktester:
                     exit_reason = "stop_loss"
                 elif take_price is not None and price <= take_price:
                     exit_reason = "take_profit"
-                elif signal_row.get("exit_short", False) or combined >= self.config.exit_threshold:
+                elif (signal_row.get("exit_short", False) or combined >= self.config.exit_threshold) and \
+                     holding_bars >= self.config.min_holding_bars:
                     exit_reason = "signal_flip"
 
             if exit_reason is None and holding_bars >= self.config.max_holding_bars:

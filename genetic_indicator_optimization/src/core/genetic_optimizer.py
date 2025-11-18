@@ -319,7 +319,9 @@ class GeneticOptimizer:
         atr_cfg["stop_multiplier"] = genes["atr_stop_multiplier"]
         atr_cfg["trailing_multiplier"] = genes["atr_trailing_multiplier"]
 
-        # Time filter parameters (optional)
+        # Time filter parameters (оптимизируются ГА)
+        # ГА может решить: включить фильтр (1) или торговать весь день (0)
+        # Если включен, ГА также выбирает начало окна (0-23) и длину (1-12 часов)
         time_cfg = cfg.setdefault("time_filter", {})
         enabled_gene = genes.get("time_filter_enabled")
         if enabled_gene is not None:
@@ -327,18 +329,21 @@ class GeneticOptimizer:
         enabled = time_cfg.get("enabled", False)
 
         if enabled:
+            # Фильтр включен: используем параметры из генов
             default_start = time_cfg.get("allowed_hours_start", 0)
             default_end = time_cfg.get("allowed_hours_end", default_start + 4)
             start = int(genes.get("time_window_start", default_start))
             base_length = max(1, default_end - default_start)
             length = int(genes.get("time_window_length", base_length))
             length = max(1, length)
+            # Убеждаемся, что окно не выходит за границы суток
             end = min(start + length, 24)
             if end <= start:
                 end = min(start + 4, 24)
             time_cfg["allowed_hours_start"] = start
             time_cfg["allowed_hours_end"] = end
         else:
+            # Фильтр выключен: торгуем весь день (параметры start/end игнорируются)
             time_cfg["enabled"] = False
 
         return cfg
