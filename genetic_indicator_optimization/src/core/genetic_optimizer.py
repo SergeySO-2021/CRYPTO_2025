@@ -319,6 +319,28 @@ class GeneticOptimizer:
         atr_cfg["stop_multiplier"] = genes["atr_stop_multiplier"]
         atr_cfg["trailing_multiplier"] = genes["atr_trailing_multiplier"]
 
+        # Time filter parameters (optional)
+        time_cfg = cfg.setdefault("time_filter", {})
+        enabled_gene = genes.get("time_filter_enabled")
+        if enabled_gene is not None:
+            time_cfg["enabled"] = bool(enabled_gene)
+        enabled = time_cfg.get("enabled", False)
+
+        if enabled:
+            default_start = time_cfg.get("allowed_hours_start", 0)
+            default_end = time_cfg.get("allowed_hours_end", default_start + 4)
+            start = int(genes.get("time_window_start", default_start))
+            base_length = max(1, default_end - default_start)
+            length = int(genes.get("time_window_length", base_length))
+            length = max(1, length)
+            end = min(start + length, 24)
+            if end <= start:
+                end = min(start + 4, 24)
+            time_cfg["allowed_hours_start"] = start
+            time_cfg["allowed_hours_end"] = end
+        else:
+            time_cfg["enabled"] = False
+
         return cfg
 
     def _calculate_fitness(self, metrics: Dict[str, Dict[str, Any]]) -> float:

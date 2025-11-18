@@ -157,6 +157,7 @@ def _maintain_diversity(self, population, min_distance=0.1):
 - **Эффективность:** ✅ 20-50% экономии времени (early stopping работает)
 - **Качество:** ✅ Лучше сходимость, меньше локальных оптимумов (адаптивная мутация работает)
 - **Мониторинг:** ✅ Видно прогресс в реальном времени (avg fitness, stagnation count)
+- **Search space:** ✅ Добавлены параметры временного окна (`time_filter_enabled`, `time_window_start`, `time_window_length`)
 
 **Текущее состояние:** 
 - ✅ Параллелизация работает (pathos, протестировано)
