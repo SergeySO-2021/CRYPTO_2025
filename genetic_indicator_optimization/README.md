@@ -92,6 +92,7 @@ py -3 scripts/run_ga_search.py \
 - ✅ Учтены maker/taker комиссии, ATR‑стоп + трейлинг, лимиты сделок
 - ✅ CLI `run_mvp_backtest.py` делает воспроизводимый отчёт
 - ✅ ГА (`run_ga_search.py`) оптимизирует `rsi_period`, `stop_loss_pct`, `take_profit_pct`, `atr_period`, `atr_stop_multiplier`, `atr_trailing_multiplier`, `wobi_weight`
+- ✅ Реализованы фильтры времени/длительности и асимметричные веса (приоритет short + отдельные пороги RSI)
 - ⏳ Расширение search space (flow/OB индикаторы, веса голосования)
 - ⏳ Walk-forward, стресс‑тесты и доработка fitness (штрафы за turnover, устойчивость)
 

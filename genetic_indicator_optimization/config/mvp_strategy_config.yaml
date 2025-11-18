@@ -3,13 +3,15 @@ signals:
     column: rsi_14
     buy_below: 35.0
     sell_above: 65.0
-    weight: 1.0
+    buy_below_long: 32.0   # Более строгий порог для long (только сильная перепроданность)
+    sell_above_short: 60.0  # Более мягкий порог для short (приоритет шортов)
+    weight: 0.8
 
   macd:
     line: macd_line
     signal: macd_signal
     deadband: 0.0
-    weight: 1.0
+    weight: 1.8  # Усиленный вес MACD (ключевой индикатор для short)
 
   bollinger:
     upper: boll_upper
@@ -24,7 +26,17 @@ signals:
 
 combination:
   entry_threshold: 0.5
+  entry_threshold_long: 0.65  # Значительно более строгий порог для long
+  entry_threshold_short: 0.45  # Мягче порог для short
   exit_threshold: 0.1
+  long_signal_multiplier: 0.8  # Снижаем вес long сигналов
+  short_signal_multiplier: 1.2  # Повышаем вес short сигналов
+
+# Временные фильтры (на основе анализа паттернов)
+time_filter:
+  enabled: true  # Торгуем только в лучшие часы (10:00-15:45 UTC)
+  allowed_hours_start: 10
+  allowed_hours_end: 16  # Конец интервала (не включительно)
 
 risk:
   initial_capital: 10000.0
@@ -32,6 +44,9 @@ risk:
   stop_loss_pct: 0.01
   take_profit_pct: 0.02
   max_holding_bars: 96
+  min_holding_bars: 8  # Минимальное время удержания: 2 часа (8 баров на 15m таймфрейме)
+  # ВНИМАНИЕ: Минимальное время удержания предотвращает выход по сигналу слишком рано
+  # Стоп-лосс и тейк-профит работают всегда, независимо от min_holding_bars
   maker_fee_pct: 0.0002
   taker_fee_pct: 0.0007
   emergency_exit_reasons:

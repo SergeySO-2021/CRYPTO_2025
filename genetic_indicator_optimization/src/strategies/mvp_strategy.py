@@ -3,7 +3,7 @@ MVP strategy logic: convert baseline indicators into trading votes/signals.
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 
 import numpy as np
 import pandas as pd
@@ -18,6 +18,8 @@ class MVPSignalConfig:
     rsi_column: str = "rsi_14"
     rsi_buy_below: float = 35.0
     rsi_sell_above: float = 65.0
+    rsi_buy_below_long: Optional[float] = None  # Специальный порог для long
+    rsi_sell_above_short: Optional[float] = None  # Специальный порог для short
     macd_line: str = "macd_line"
     macd_signal: str = "macd_signal"
     macd_deadband: float = 0.0
@@ -30,7 +32,16 @@ class MVPSignalConfig:
         default_factory=lambda: {"rsi": 1.0, "macd": 1.0, "bollinger": 1.0, "wobi": 1.0}
     )
     entry_threshold: float = 0.5
+    entry_threshold_long: Optional[float] = None  # Асимметричный порог для long
+    entry_threshold_short: Optional[float] = None  # Асимметричный порог для short
     exit_threshold: float = 0.1
+    # Временные фильтры (часы UTC)
+    time_filter_enabled: bool = False
+    allowed_hours_start: int = 10  # Начало разрешённого времени (10:00)
+    allowed_hours_end: int = 15  # Конец разрешённого времени (15:00)
+    # Асимметричные веса для long/short
+    long_signal_multiplier: float = 1.0  # Множитель для long сигналов
+    short_signal_multiplier: float = 1.0  # Множитель для short сигналов
 
     @classmethod
     def from_dict(cls, cfg: Dict[str, Any] | None) -> "MVPSignalConfig":
@@ -44,6 +55,8 @@ class MVPSignalConfig:
         instance.rsi_column = rsi_cfg.get("column", instance.rsi_column)
         instance.rsi_buy_below = rsi_cfg.get("buy_below", instance.rsi_buy_below)
         instance.rsi_sell_above = rsi_cfg.get("sell_above", instance.rsi_sell_above)
+        instance.rsi_buy_below_long = rsi_cfg.get("buy_below_long", instance.rsi_buy_below_long)
+        instance.rsi_sell_above_short = rsi_cfg.get("sell_above_short", instance.rsi_sell_above_short)
 
         macd_cfg = signals_cfg.get("macd", {})
         instance.macd_line = macd_cfg.get("line", instance.macd_line)
@@ -68,7 +81,19 @@ class MVPSignalConfig:
 
         combo_cfg = cfg.get("combination", {})
         instance.entry_threshold = combo_cfg.get("entry_threshold", instance.entry_threshold)
+        instance.entry_threshold_long = combo_cfg.get("entry_threshold_long", instance.entry_threshold_long)
+        instance.entry_threshold_short = combo_cfg.get("entry_threshold_short", instance.entry_threshold_short)
         instance.exit_threshold = combo_cfg.get("exit_threshold", instance.exit_threshold)
+        
+        # Временные фильтры
+        time_cfg = cfg.get("time_filter", {})
+        instance.time_filter_enabled = time_cfg.get("enabled", instance.time_filter_enabled)
+        instance.allowed_hours_start = time_cfg.get("allowed_hours_start", instance.allowed_hours_start)
+        instance.allowed_hours_end = time_cfg.get("allowed_hours_end", instance.allowed_hours_end)
+        
+        # Асимметричные веса
+        instance.long_signal_multiplier = combo_cfg.get("long_signal_multiplier", instance.long_signal_multiplier)
+        instance.short_signal_multiplier = combo_cfg.get("short_signal_multiplier", instance.short_signal_multiplier)
 
         return instance
 
@@ -86,10 +111,20 @@ class MVPStrategy:
 
         if self.config.rsi_column in data.columns:
             rsi = data[self.config.rsi_column]
+            buy_threshold = (
+                self.config.rsi_buy_below_long
+                if self.config.rsi_buy_below_long is not None
+                else self.config.rsi_buy_below
+            )
+            sell_threshold = (
+                self.config.rsi_sell_above_short
+                if self.config.rsi_sell_above_short is not None
+                else self.config.rsi_sell_above
+            )
             votes["rsi_vote"] = np.where(
-                rsi <= self.config.rsi_buy_below,
+                rsi <= buy_threshold,
                 1,
-                np.where(rsi >= self.config.rsi_sell_above, -1, 0),
+                np.where(rsi >= sell_threshold, -1, 0),
             )
 
         if self.config.macd_line in data.columns and self.config.macd_signal in data.columns:
@@ -149,11 +184,31 @@ class MVPStrategy:
     def generate_signals(self, data: pd.DataFrame) -> pd.DataFrame:
         votes = self.build_votes(data)
         combined = self.aggregate_signal(votes)
+        
+        # Применяем асимметричные множители
+        combined_long = combined * self.config.long_signal_multiplier
+        combined_short = combined * self.config.short_signal_multiplier
+        
+        # Определяем пороги входа
+        entry_threshold_long = self.config.entry_threshold_long if self.config.entry_threshold_long is not None else self.config.entry_threshold
+        entry_threshold_short = self.config.entry_threshold_short if self.config.entry_threshold_short is not None else self.config.entry_threshold
 
         signals = votes.copy()
         signals["combined_signal"] = combined
-        signals["entry_long"] = combined >= self.config.entry_threshold
-        signals["entry_short"] = combined <= -self.config.entry_threshold
+        signals["combined_signal_long"] = combined_long
+        signals["combined_signal_short"] = combined_short
+        
+        # Базовые сигналы входа
+        signals["entry_long"] = combined_long >= entry_threshold_long
+        signals["entry_short"] = combined_short <= -entry_threshold_short
+        
+        # Применяем временные фильтры
+        if self.config.time_filter_enabled:
+            hours = pd.to_datetime(data.index).hour
+            allowed_mask = (hours >= self.config.allowed_hours_start) & (hours < self.config.allowed_hours_end)
+            signals["entry_long"] = signals["entry_long"] & allowed_mask
+            signals["entry_short"] = signals["entry_short"] & allowed_mask
+        
         signals["exit_long"] = combined <= self.config.exit_threshold
         signals["exit_short"] = combined >= -self.config.exit_threshold
 
