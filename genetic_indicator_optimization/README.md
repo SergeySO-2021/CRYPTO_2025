@@ -77,6 +77,7 @@ py -3 scripts/run_ga_search.py \
 - `docs/FITNESS_FUNCTION_UPDATE.md` — ✅ обновление fitness функции для борьбы с переобучением
 - `docs/GA_OPTIMIZATION_PLAN.md` — план оптимизации эффективности ГА
 - `docs/OPTIMIZATION_SUMMARY.md` — резюме реализованных оптимизаций
+- `docs/TEST_TRADES_PATTERN_ANALYSIS.md` — анализ паттернов в прибыльных сделках на тестовом сплите
 - `docs/PROJECT_EXPLAINED_SIMPLE.md` — объяснение проекта «на пальцах»
 - `docs/UPDATED_PLAN_CRITICAL_ANALYSIS.md` + `docs/PLAN_SUMMARY.md` — адаптированный план
 - `docs/ORDER_BOOK_INDICATORS_IMPLEMENTATION.md` — список OB‑индикаторов
