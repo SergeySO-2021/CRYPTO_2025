@@ -58,6 +58,17 @@ def build_strategy_config(genes: dict, base_config_path: str) -> dict:
         time_cfg["allowed_hours_start"] = start
         time_cfg["allowed_hours_end"] = min(start + length, 24)
     
+    # Long/Short балансировка (если есть в генах)
+    combination_cfg = cfg.setdefault("combination", {})
+    if "long_signal_multiplier" in genes:
+        combination_cfg["long_signal_multiplier"] = float(genes["long_signal_multiplier"])
+    if "short_signal_multiplier" in genes:
+        combination_cfg["short_signal_multiplier"] = float(genes["short_signal_multiplier"])
+    if "entry_threshold_long" in genes:
+        combination_cfg["entry_threshold_long"] = float(genes["entry_threshold_long"])
+    if "entry_threshold_short" in genes:
+        combination_cfg["entry_threshold_short"] = float(genes["entry_threshold_short"])
+    
     return cfg
 
 
@@ -69,7 +80,32 @@ def analyze_parameters(genes: dict):
     
     print(f"\n[ИНДИКАТОРЫ]")
     print(f"  RSI период: {genes['rsi_period']}")
+    if 'rsi_weight' in genes:
+        print(f"  RSI вес: {genes['rsi_weight']:.4f}")
+    if 'rsi_buy_below_long' in genes:
+        print(f"  RSI buy_below_long: {genes['rsi_buy_below_long']:.2f}")
+    if 'rsi_sell_above_short' in genes:
+        print(f"  RSI sell_above_short: {genes['rsi_sell_above_short']:.2f}")
+    
+    if 'macd_fast_period' in genes and 'macd_slow_period' in genes and 'macd_signal_period' in genes:
+        print(f"  MACD: {genes['macd_fast_period']}-{genes['macd_slow_period']}-{genes['macd_signal_period']}")
+    if 'macd_weight' in genes:
+        print(f"  MACD вес: {genes['macd_weight']:.4f}")
+    
+    if 'bollinger_period' in genes and 'bollinger_std_dev' in genes:
+        print(f"  Bollinger: период {genes['bollinger_period']}, std_dev {genes['bollinger_std_dev']:.2f}")
+    if 'bollinger_weight' in genes:
+        print(f"  Bollinger вес: {genes['bollinger_weight']:.4f}")
+    
     print(f"  WOBI вес: {genes['wobi_weight']:.4f}")
+    if all(f'wobi_weight_ratio{k}' in genes for k in [3, 5, 8, 60]):
+        w3 = genes['wobi_weight_ratio3']
+        w5 = genes['wobi_weight_ratio5']
+        w8 = genes['wobi_weight_ratio8']
+        w60 = genes['wobi_weight_ratio60']
+        total = w3 + w5 + w8 + w60
+        if total > 0:
+            print(f"  WOBI веса глубин: ratio3={w3/total:.3f}, ratio5={w5/total:.3f}, ratio8={w8/total:.3f}, ratio60={w60/total:.3f}")
     
     print(f"\n[УПРАВЛЕНИЕ РИСКАМИ]")
     print(f"  Stop Loss: {genes['stop_loss_pct']*100:.2f}%")
@@ -98,6 +134,23 @@ def analyze_parameters(genes: dict):
         print("  [WARN] Take Profit больше Stop Loss - агрессивный подход")
     else:
         print("  [OK] Сбалансированное соотношение")
+    
+    # Long/Short балансировка (если есть)
+    if "long_signal_multiplier" in genes and "short_signal_multiplier" in genes:
+        print(f"\n[LONG/SHORT БАЛАНСИРОВКА]")
+        long_mult = genes["long_signal_multiplier"]
+        short_mult = genes["short_signal_multiplier"]
+        sum_mult = long_mult + short_mult
+        print(f"  Long multiplier: {long_mult:.4f}")
+        print(f"  Short multiplier: {short_mult:.4f}")
+        print(f"  Сумма: {sum_mult:.4f} {'[OK]' if sum_mult >= 1.6 else '[WARNING]'}")
+        
+        if "entry_threshold_long" in genes and "entry_threshold_short" in genes:
+            long_thresh = genes["entry_threshold_long"]
+            short_thresh = genes["entry_threshold_short"]
+            print(f"  Entry threshold Long: {long_thresh:.4f}")
+            print(f"  Entry threshold Short: {short_thresh:.4f}")
+            print(f"  Long >= Short: {'[OK]' if long_thresh >= short_thresh else '[WARNING]'}")
 
 
 def analyze_metrics_comparison(metrics: dict):
@@ -282,8 +335,37 @@ def analyze_trades_by_split(results_path: str, data_path: str = None):
 
 
 def main():
-    results_path = Path(__file__).parent.parent / "results" / "ga_best.json"
-    data_path = None  # Используем путь по умолчанию
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Детальный анализ результатов ГА")
+    parser.add_argument(
+        "--input",
+        type=str,
+        default=None,
+        help="Путь к файлу результатов (по умолчанию: results/ga_best.json)"
+    )
+    parser.add_argument(
+        "--output",
+        type=str,
+        default=None,
+        help="Префикс для выходных файлов (опционально)"
+    )
+    parser.add_argument(
+        "--data-path",
+        type=str,
+        default=None,
+        help="Путь к файлу данных (по умолчанию: используется путь из конфига)"
+    )
+    
+    args = parser.parse_args()
+    
+    # Определяем путь к файлу результатов
+    if args.input:
+        results_path = Path(args.input)
+        if not results_path.is_absolute():
+            results_path = Path(__file__).parent.parent / results_path
+    else:
+        results_path = Path(__file__).parent.parent / "results" / "ga_best.json"
     
     if not results_path.exists():
         print(f"[ERROR] Файл результатов не найден: {results_path}")
@@ -294,7 +376,17 @@ def main():
     print("=" * 80)
     print("ДЕТАЛЬНЫЙ АНАЛИЗ РЕЗУЛЬТАТОВ ГЕНЕТИЧЕСКОГО АЛГОРИТМА")
     print("=" * 80)
-    print(f"\nFitness: {results['fitness']:.2f}")
+    
+    fitness = results.get('fitness')
+    if fitness is not None:
+        if fitness == float('inf'):
+            print(f"\nFitness: Infinity (проблема!)")
+        elif fitness == -float('inf'):
+            print(f"\nFitness: -Infinity (решение не прошло constraints)")
+        else:
+            print(f"\nFitness: {fitness:.2f}")
+    else:
+        print(f"\nFitness: не найден")
     
     # Анализ параметров
     analyze_parameters(results['genes'])
@@ -304,7 +396,7 @@ def main():
     
     # Детальный анализ сделок
     try:
-        analyze_trades_by_split(str(results_path), data_path)
+        analyze_trades_by_split(str(results_path), args.data_path)
     except Exception as e:
         print(f"\n[ERROR] Ошибка при анализе сделок: {e}")
         import traceback

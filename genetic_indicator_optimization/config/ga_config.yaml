@@ -121,4 +121,115 @@ search_space:
     # Длина окна в часах (1-12 часов)
     # Используется только если time_filter_enabled = 1
     # Конец окна = start + length (не более 24)
+  long_signal_multiplier:
+    type: float
+    min: 0.8
+    max: 1.2
+    # Множитель для long сигналов (оптимизируется ГА)
+    # Используется для балансировки Long/Short позиций
+    # ОГРАНИЧЕНО: [0.8, 1.2] вместо [0.5, 1.5] для предотвращения "лазеек"
+  short_signal_multiplier:
+    type: float
+    min: 0.8
+    max: 1.2
+    # Множитель для short сигналов (оптимизируется ГА)
+    # Используется для балансировки Long/Short позиций
+    # ОГРАНИЧЕНО: [0.8, 1.2] вместо [0.5, 1.5] для предотвращения "лазеек"
+    # CONSTRAINT: long_signal_multiplier + short_signal_multiplier >= 1.6
+  entry_threshold_long:
+    type: float
+    min: 0.5
+    max: 0.7
+    # Порог входа для long позиций (оптимизируется ГА)
+    # Более строгий порог для long (требует более сильных сигналов)
+    # ОГРАНИЧЕНО: [0.5, 0.7] вместо [0.5, 0.8] для более строгих входов
+    # CONSTRAINT: entry_threshold_long >= entry_threshold_short
+  entry_threshold_short:
+    type: float
+    min: 0.4
+    max: 0.6
+    # Порог входа для short позиций (оптимизируется ГА)
+    # Более мягкий порог для short (приоритет шортов)
+    # ОГРАНИЧЕНО: [0.4, 0.6] вместо [0.3, 0.6] для повышения минимального порога
+  
+  # Веса индикаторов (оптимизируются ГА)
+  rsi_weight:
+    type: float
+    min: 0.1
+    max: 2.0
+    # Вес RSI индикатора в голосовании
+  macd_weight:
+    type: float
+    min: 0.1
+    max: 2.0
+    # Вес MACD индикатора в голосовании
+  bollinger_weight:
+    type: float
+    min: 0.1
+    max: 2.0
+    # Вес Bollinger Bands индикатора в голосовании
+  
+  # Пороги RSI отдельно для long/short (оптимизируются ГА)
+  rsi_buy_below_long:
+    type: float
+    min: 25.0
+    max: 40.0
+    # Порог RSI для входа в long позицию (чем ниже, тем строже)
+  rsi_sell_above_short:
+    type: float
+    min: 55.0
+    max: 75.0
+    # Порог RSI для входа в short позицию (чем выше, тем строже)
+  
+  # Параметры MACD (оптимизируются ГА)
+  macd_fast_period:
+    type: int
+    min: 5
+    max: 30
+    # Быстрый период MACD
+  macd_slow_period:
+    type: int
+    min: 15
+    max: 70
+    # Медленный период MACD
+  macd_signal_period:
+    type: int
+    min: 5
+    max: 30
+    # Период сигнальной линии MACD
+  
+  # Параметры Bollinger Bands (оптимизируются ГА)
+  bollinger_period:
+    type: int
+    min: 15
+    max: 40
+    # Период Bollinger Bands
+  bollinger_std_dev:
+    type: float
+    min: 1.5
+    max: 4.0
+    # Стандартное отклонение для Bollinger Bands
+  
+  # Параметры WOBI (веса глубин, оптимизируются ГА)
+  wobi_weight_ratio3:
+    type: float
+    min: 0.0
+    max: 1.0
+    # Вес глубины 3% для WOBI
+  wobi_weight_ratio5:
+    type: float
+    min: 0.0
+    max: 1.0
+    # Вес глубины 5% для WOBI
+  wobi_weight_ratio8:
+    type: float
+    min: 0.0
+    max: 1.0
+    # Вес глубины 8% для WOBI
+  wobi_weight_ratio60:
+    type: float
+    min: 0.0
+    max: 1.0
+    # Вес глубины 60% для WOBI
+    # CONSTRAINT: сумма всех wobi_weight_ratio* должна быть близка к 1.0 (нормализуется в коде)
 

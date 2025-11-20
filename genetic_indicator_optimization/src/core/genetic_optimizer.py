@@ -17,6 +17,7 @@ from typing import Dict, Any, List, Tuple, Optional
 from functools import partial
 
 import yaml
+import numpy as np
 
 try:
     from multiprocessing import cpu_count
@@ -179,7 +180,73 @@ class GeneticOptimizer:
         genes = {}
         for name, definition in self.search_space.items():
             genes[name] = self._random_value(definition)
+        # Применяем constraints после генерации случайных генов
+        genes = self._apply_constraints(genes)
         return genes
+
+    def _apply_constraints(self, genes: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Применяет constraints к генам для Long/Short параметров и WOBI весов.
+        
+        Constraints:
+        - long_signal_multiplier + short_signal_multiplier >= 1.6
+        - entry_threshold_long >= entry_threshold_short
+        - WOBI веса: сумма должна быть > 0 (нормализуется в _build_feature_dataset)
+        """
+        constrained = copy.deepcopy(genes)
+        
+        # Constraint 1: long_signal_multiplier + short_signal_multiplier >= 1.6
+        if "long_signal_multiplier" in constrained and "short_signal_multiplier" in constrained:
+            long_mult = constrained["long_signal_multiplier"]
+            short_mult = constrained["short_signal_multiplier"]
+            sum_mult = long_mult + short_mult
+            
+            if sum_mult < 1.6:
+                # Корректируем оба множителя пропорционально
+                scale = 1.6 / sum_mult
+                constrained["long_signal_multiplier"] = min(1.2, max(0.8, long_mult * scale))
+                constrained["short_signal_multiplier"] = min(1.2, max(0.8, short_mult * scale))
+        
+        # Constraint 2: entry_threshold_long >= entry_threshold_short
+        if "entry_threshold_long" in constrained and "entry_threshold_short" in constrained:
+            long_thresh = constrained["entry_threshold_long"]
+            short_thresh = constrained["entry_threshold_short"]
+            
+            if long_thresh < short_thresh:
+                # Устанавливаем long_thresh = short_thresh (минимальная корректировка)
+                constrained["entry_threshold_long"] = short_thresh
+        
+        # Constraint 3: WOBI веса - гарантируем, что хотя бы один вес > 0
+        wobi_weights = ["wobi_weight_ratio3", "wobi_weight_ratio5", "wobi_weight_ratio8", "wobi_weight_ratio60"]
+        if all(w in constrained for w in wobi_weights):
+            total = sum(constrained[w] for w in wobi_weights)
+            if total <= 0:
+                # Если сумма <= 0, устанавливаем равномерные веса
+                for w in wobi_weights:
+                    constrained[w] = 0.25
+
+        # Constraint 4: MACD fast < slow
+        if "macd_fast_period" in constrained and "macd_slow_period" in constrained:
+            fast_def = self.search_space.get("macd_fast_period", {})
+            slow_def = self.search_space.get("macd_slow_period", {})
+            fast_min = fast_def.get("min", 1)
+            fast_max = fast_def.get("max", 100)
+            slow_min = slow_def.get("min", fast_min + 1)
+            slow_max = slow_def.get("max", fast_max + 10)
+
+            fast = max(fast_min, min(constrained["macd_fast_period"], fast_max))
+            slow = max(slow_min, min(constrained["macd_slow_period"], slow_max))
+
+            if fast >= slow:
+                slow = min(slow_max, max(fast + 1, slow_min))
+                if slow <= fast:
+                    fast = max(fast_min, min(slow - 1, fast_max))
+                    slow = min(slow_max, max(fast + 1, slow_min))
+
+            constrained["macd_fast_period"] = fast
+            constrained["macd_slow_period"] = slow
+        
+        return constrained
 
     def _mutate(self, genes: Dict[str, Any], mutation_rate: Optional[float] = None) -> Dict[str, Any]:
         mutated = copy.deepcopy(genes)
@@ -187,6 +254,8 @@ class GeneticOptimizer:
         for name, definition in self.search_space.items():
             if random.random() <= rate:
                 mutated[name] = self._mutated_value(mutated[name], definition)
+        # Применяем constraints после мутации
+        mutated = self._apply_constraints(mutated)
         return mutated
 
     def _get_adaptive_mutation_rate(self, generation: int, stagnation_count: int) -> float:
@@ -216,6 +285,8 @@ class GeneticOptimizer:
         child = {}
         for name in genes_a.keys():
             child[name] = random.choice([genes_a[name], genes_b[name]])
+        # Применяем constraints после кроссовера
+        child = self._apply_constraints(child)
         return child
 
     def _tournament_select(self, population: List[Individual]) -> Individual:
@@ -267,7 +338,7 @@ class GeneticOptimizer:
             result = backtester.run(df, signals)
             metrics[split_name] = result.metrics
 
-        fitness = self._calculate_fitness(metrics)
+        fitness = self._calculate_fitness(metrics, individual.genes)
 
         evaluated = Individual(
             genes=copy.deepcopy(individual.genes),
@@ -283,6 +354,40 @@ class GeneticOptimizer:
             "rsi": {"period": genes["rsi_period"]},
             "atr": {"period": genes["atr_period"]},
         }
+        
+        # Добавляем параметры MACD, если они есть в генах
+        if "macd_fast_period" in genes and "macd_slow_period" in genes and "macd_signal_period" in genes:
+            indicator_params["macd"] = {
+                "fast_period": genes["macd_fast_period"],
+                "slow_period": genes["macd_slow_period"],
+                "signal_period": genes["macd_signal_period"],
+            }
+        
+        # Добавляем параметры Bollinger, если они есть в генах
+        if "bollinger_period" in genes and "bollinger_std_dev" in genes:
+            indicator_params["bollinger"] = {
+                "period": genes["bollinger_period"],
+                "std_dev": genes["bollinger_std_dev"],
+            }
+        
+        # Добавляем параметры WOBI (веса глубин), если они есть в генах
+        if all(f"wobi_weight_ratio{k}" in genes for k in [3, 5, 8, 60]):
+            # Нормализуем веса, чтобы сумма была равна 1.0
+            w3 = max(0.0, genes["wobi_weight_ratio3"])
+            w5 = max(0.0, genes["wobi_weight_ratio5"])
+            w8 = max(0.0, genes["wobi_weight_ratio8"])
+            w60 = max(0.0, genes["wobi_weight_ratio60"])
+            total = w3 + w5 + w8 + w60
+            if total > 0:
+                indicator_params["wobi"] = {
+                    "weights": {
+                        "ratio3": w3 / total,
+                        "ratio5": w5 / total,
+                        "ratio8": w8 / total,
+                        "ratio60": w60 / total,
+                    }
+                }
+        
         pipeline = IndicatorPipeline(self.raw_data, params=indicator_params)
         artifacts = pipeline.run()
         return artifacts.data.dropna()
@@ -303,11 +408,34 @@ class GeneticOptimizer:
         cfg = copy.deepcopy(self.strategy_config)
 
         signals_cfg = cfg.setdefault("signals", {})
+        
+        # RSI параметры
         rsi_cfg = signals_cfg.setdefault("rsi", {})
         rsi_cfg["column"] = f"rsi_{genes['rsi_period']}"
-
+        if "rsi_weight" in genes:
+            rsi_cfg["weight"] = float(genes["rsi_weight"])
+        if "rsi_buy_below_long" in genes:
+            rsi_cfg["buy_below_long"] = float(genes["rsi_buy_below_long"])
+        if "rsi_sell_above_short" in genes:
+            rsi_cfg["sell_above_short"] = float(genes["rsi_sell_above_short"])
+        
+        # MACD параметры
+        macd_cfg = signals_cfg.setdefault("macd", {})
+        if "macd_weight" in genes:
+            macd_cfg["weight"] = float(genes["macd_weight"])
+        # Параметры MACD (fast/slow/signal) обрабатываются в _build_feature_dataset
+        
+        # Bollinger параметры
+        boll_cfg = signals_cfg.setdefault("bollinger", {})
+        if "bollinger_weight" in genes:
+            boll_cfg["weight"] = float(genes["bollinger_weight"])
+        # Параметры Bollinger (period/std_dev) обрабатываются в _build_feature_dataset
+        
+        # WOBI параметры
         wobi_cfg = signals_cfg.setdefault("wobi", {})
-        wobi_cfg["weight"] = genes["wobi_weight"]
+        if "wobi_weight" in genes:
+            wobi_cfg["weight"] = float(genes["wobi_weight"])
+        # Веса глубин WOBI обрабатываются в _build_feature_dataset
 
         risk_cfg = cfg.setdefault("risk", {})
         risk_cfg["stop_loss_pct"] = genes["stop_loss_pct"]
@@ -346,14 +474,156 @@ class GeneticOptimizer:
             # Фильтр выключен: торгуем весь день (параметры start/end игнорируются)
             time_cfg["enabled"] = False
 
+        # Long/Short балансировка параметры (оптимизируются ГА)
+        # ГА может оптимизировать множители сигналов и пороги входа для балансировки Long/Short
+        combination_cfg = cfg.setdefault("combination", {})
+        if "long_signal_multiplier" in genes:
+            combination_cfg["long_signal_multiplier"] = float(genes["long_signal_multiplier"])
+        if "short_signal_multiplier" in genes:
+            combination_cfg["short_signal_multiplier"] = float(genes["short_signal_multiplier"])
+        if "entry_threshold_long" in genes:
+            combination_cfg["entry_threshold_long"] = float(genes["entry_threshold_long"])
+        if "entry_threshold_short" in genes:
+            combination_cfg["entry_threshold_short"] = float(genes["entry_threshold_short"])
+
         return cfg
 
-    def _calculate_fitness(self, metrics: Dict[str, Dict[str, Any]]) -> float:
-        val_metrics = metrics.get("val") or self._empty_metrics()
-        train_metrics = metrics.get("train") or self._empty_metrics()
+    def _safe_metric_value(self, value: float, metric_name: str, default: float = 0.0) -> float:
+        """
+        Безопасное вычисление метрик с обработкой edge cases.
+        
+        Обрабатывает Infinity и NaN значения, ограничивая их разумными пределами.
+        """
+        if np.isinf(value) or np.isnan(value):
+            # Для profit_factor: Infinity -> ограничиваем сверху
+            if metric_name == "profit_factor":
+                return 10.0  # Максимальное разумное значение
+            # Для sharpe: Infinity -> высокое, но конечное значение
+            elif metric_name == "sharpe_ratio":
+                return 50.0 if value > 0 else -50.0
+            else:
+                return default
+        return float(value)
+
+    def _validate_metrics(self, metrics: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Валидация и очистка метрик.
+        
+        Обрабатывает бесконечности, NaN, нулевую просадку и гарантирует корректные диапазоны.
+        """
+        if not metrics:
+            return self._empty_metrics()
+        
+        validated = copy.deepcopy(metrics)
+        
+        # Замена бесконечностей
+        validated["profit_factor"] = self._safe_metric_value(
+            validated.get("profit_factor", 0.0), "profit_factor", 0.0
+        )
+        
+        validated["sharpe_ratio"] = self._safe_metric_value(
+            validated.get("sharpe_ratio", 0.0), "sharpe_ratio", 0.0
+        )
+        
+        # Обработка нулевой просадки
+        max_drawdown = validated.get("max_drawdown", 0.0)
+        if max_drawdown == 0.0 or np.isnan(max_drawdown):
+            validated["max_drawdown"] = 1e-5  # Избегаем деления на ноль
+        
+        # Гарантия, что win_rate в [0, 1]
+        win_rate = validated.get("win_rate", 0.0)
+        if np.isnan(win_rate) or np.isinf(win_rate):
+            validated["win_rate"] = 0.0
+        else:
+            validated["win_rate"] = max(0.0, min(1.0, float(win_rate)))
+        
+        # Гарантия, что total_return конечное значение
+        total_return = validated.get("total_return", 0.0)
+        if np.isinf(total_return) or np.isnan(total_return):
+            validated["total_return"] = 0.0
+        
+        return validated
+
+    def _passes_hard_constraints(self, metrics: Dict[str, Any]) -> bool:
+        """
+        Жёсткие ограничения - отсекаем плохие решения до вычисления fitness.
+        
+        Returns:
+            True если решение проходит все constraints, False иначе
+        """
+        trades = metrics.get("total_trades", 0)
+        
+        # Минимум 10 сделок на валидации
+        if trades < 10:
+            return False
+        
+        # Максимальная просадка не более 20%
+        max_drawdown = metrics.get("max_drawdown", 1.0)
+        if not (np.isnan(max_drawdown) or np.isinf(max_drawdown)):
+            if max_drawdown > 0.20:
+                return False
+        
+        # Win rate не менее 25%
+        win_rate = metrics.get("win_rate", 0.0)
+        if not (np.isnan(win_rate) or np.isinf(win_rate)):
+            if win_rate < 0.25:
+                return False
+        
+        return True
+
+    def _apply_trade_count_penalties(self, metrics: Dict[str, Any]) -> Tuple[float, float]:
+        """
+        ЖЁСТКИЕ штрафы за малое количество сделок.
+        
+        Returns:
+            Tuple[аддитивный_штраф, мультипликативный_множитель]
+        """
+        trades = metrics.get("total_trades", 0)
+        
+        # Аддитивные штрафы (работают даже с Infinity)
+        penalty = 0.0
+        
+        if trades < 5:
+            penalty += 1000.0  # Очень жёсткий штраф
+        elif trades < 10:
+            penalty += 500.0
+        elif trades < 20:
+            penalty += 200.0
+        elif trades < 30:
+            penalty += 100.0
+        
+        # Мультипликативные штрафы (дополнительно, усиленные)
+        multiplier = 1.0
+        if trades < 10:
+            multiplier *= 0.1  # Сильное уменьшение (было 0.5)
+        elif trades < 20:
+            multiplier *= 0.3  # Было 0.7
+        elif trades < 30:
+            multiplier *= 0.6
+        
+        return penalty, multiplier
+
+    def _calculate_fitness(self, metrics: Dict[str, Dict[str, Any]], genes: Optional[Dict[str, Any]] = None) -> float:
+        # 1. Предварительная валидация метрик
+        val_metrics_raw = metrics.get("val") or self._empty_metrics()
+        train_metrics_raw = metrics.get("train") or self._empty_metrics()
+        test_metrics_raw = metrics.get("test") or self._empty_metrics()
+        
+        val_metrics = self._validate_metrics(val_metrics_raw)
+        train_metrics = self._validate_metrics(train_metrics_raw)
+        test_metrics = self._validate_metrics(test_metrics_raw)
+        
+        # 2. Жёсткие проверки (hard constraints) - отсекаем плохие решения
+        if not self._passes_hard_constraints(val_metrics):
+            return -float('inf')
+        # Жёсткий запрет на отрицательный Test return
+        if test_metrics.get("total_return", 0.0) < 0:
+            return -float("inf")
+        
         weights = self.fitness_weights
 
-        # Основной fitness на validation (борьба с переобучением)
+        # 3. Основной fitness на validation (борьба с переобучением)
+        # Используем безопасные метрики
         pnl_score = val_metrics["total_return"] * 100
         sharpe_score = val_metrics["sharpe_ratio"] * 10
         drawdown_score = (1 - val_metrics["max_drawdown"]) * 100
@@ -382,18 +652,50 @@ class GeneticOptimizer:
         stability_bonus = self._calculate_stability_bonus(train_metrics, val_metrics)
         score += stability_bonus
         
+        # Штраф за разницу между validation и test
+        val_test_penalty = self._calculate_val_test_penalty(val_metrics, test_metrics)
+        score -= val_test_penalty
+        
+        # Штраф за слишком широкое временное окно
+        time_window_penalty = self._calculate_time_window_penalty(genes or {})
+        score -= time_window_penalty
+        
+        # ЖЁСТКИЕ штрафы за малое количество сделок (аддитивные + мультипликативные)
+        trade_penalty, trade_multiplier = self._apply_trade_count_penalties(val_metrics)
+        score -= trade_penalty
+        
         # Логирование для отладки (только если есть значительные штрафы/бонусы)
-        if overfitting_penalty > 10 or stability_penalty > 10 or stability_bonus > 5:
+        if (
+            overfitting_penalty > 10
+            or stability_penalty > 10
+            or stability_bonus > 5
+            or trade_penalty > 100
+            or val_test_penalty > 10
+            or time_window_penalty > 10
+        ):
             print(
                 f"  [Fitness] base={base_score:.2f} "
                 f"overfit_penalty={overfitting_penalty:.2f} "
                 f"stability_penalty={stability_penalty:.2f} "
                 f"stability_bonus={stability_bonus:.2f} "
+                f"trade_penalty={trade_penalty:.2f} "
+                f"val_test_penalty={val_test_penalty:.2f} "
+                f"time_window_penalty={time_window_penalty:.2f} "
                 f"final={score:.2f}"
             )
         
-        score *= self._apply_penalties(val_metrics)
-        score += self._apply_bonuses(val_metrics)
+        # Мультипликативные штрафы (существующие + новые)
+        penalties_multiplier = self._apply_penalties(val_metrics) * trade_multiplier
+        score *= penalties_multiplier
+        
+        # Аддитивные бонусы
+        bonuses = self._apply_bonuses(val_metrics)
+        score += bonuses
+        
+        # 4. Гарантия конечного значения
+        if np.isinf(score) or np.isnan(score):
+            return -1000.0
+        
         return score
 
     def _apply_penalties(self, metrics: Dict[str, Any]) -> float:
@@ -426,6 +728,44 @@ class GeneticOptimizer:
             if condition and key in self.fitness_bonuses:
                 bonus += self.fitness_bonuses[key]
         return bonus
+
+    def _calculate_val_test_penalty(self, val_metrics: Dict[str, Any], test_metrics: Dict[str, Any]) -> float:
+        """
+        Штраф за разницу между validation и test метриками.
+        Цель — удерживать gap < 50% для доходности и Sharpe.
+        """
+        penalty = 0.0
+
+        val_return = val_metrics.get("total_return", 0.0)
+        test_return = test_metrics.get("total_return", 0.0)
+        return_base = max(abs(val_return), 1e-4)
+        return_gap = abs(test_return - val_return) / return_base
+        if return_gap > 0.5:
+            penalty += (return_gap - 0.5) * 400.0
+
+        val_sharpe = val_metrics.get("sharpe_ratio", 0.0)
+        test_sharpe = test_metrics.get("sharpe_ratio", 0.0)
+        sharpe_base = max(abs(val_sharpe), 0.1)
+        sharpe_gap = abs(test_sharpe - val_sharpe) / sharpe_base
+        if sharpe_gap > 0.5:
+            penalty += (sharpe_gap - 0.5) * 40.0
+
+        return penalty
+
+    def _calculate_time_window_penalty(self, genes: Dict[str, Any]) -> float:
+        """
+        Штраф за слишком широкое временное окно (> 8 часов).
+        Применяется только если time_filter включён.
+        """
+        if not genes:
+            return 0.0
+        if genes.get("time_filter_enabled", 0) != 1:
+            return 0.0
+        window = genes.get("time_window_length", 24)
+        if window <= 8:
+            return 0.0
+        excess = window - 8
+        return excess * 50.0
 
     def _calculate_overfitting_penalty(self, train_metrics: Dict[str, Any], val_metrics: Dict[str, Any]) -> float:
         """
